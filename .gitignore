@@ -1,0 +1,72 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Nguyên tắc: git chỉ chứa CODE + tài liệu + file mẫu (*.example).
+# Không bao giờ đẩy: secret, cookie, dữ liệu, model, venv, trạng thái chạy.
+# Máy mới tự sinh / tự tải lại những thứ này — xem README.md.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Secret & cookie đăng nhập (TUYỆT ĐỐI không commit) ───────────────────────
+.env
+cookies/
+*_cookies.json
+*_cookies.txt
+config/gemini_keys.json
+# Danh sách camera RTSP chứa user:mật_khẩu trong URL — chỉ đẩy file mẫu
+rtsp/*.txt
+!rtsp/*.example.txt
+rtsp/.backup_*/
+
+# ── Airflow: tự sinh khi chạy (airflow.cfg có secret_key/jwt_secret) ──────────
+airflow.cfg
+airflow.db
+airflow.db-*
+airflow/
+logs/
+simple_auth_manager_passwords.json.generated
+webserver_config.py
+standalone_admin_password.txt
+
+# ── Trạng thái chạy + báo cáo sinh tự động ───────────────────────────────────
+state/
+reports/
+
+# ── Dữ liệu (video, frame, kết quả) — nằm trên NAS / ổ cục bộ ────────────────
+data/*
+!data/.gitkeep
+
+# ── Model (hàng GB) — tải riêng, xem models/README.md ────────────────────────
+models/*
+!models/README.md
+
+# ── Repo bên thứ ba cài riêng (xem README) ───────────────────────────────────
+sam3/
+InternVideo_repo/
+
+# ── Thử nghiệm cá nhân, không thuộc pipeline ─────────────────────────────────
+run_local_flux.py
+run_local_flux_img2img.py
+call_api_gemini.py
+internvideo2_inference.py
+xclip_inference.py
+test_dag3.py
+test_sam3.py
+generated_images/
+experiments/
+
+# ── Python / công cụ ─────────────────────────────────────────────────────────
+airflow_venv/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+*.log
+
+# ── Claude Code: giữ skills dùng chung, bỏ cấu hình cá nhân ──────────────────
+.claude/settings.local.json
+
+# ── Hệ điều hành / editor ────────────────────────────────────────────────────
+.DS_Store
+.vscode/
+.idea/

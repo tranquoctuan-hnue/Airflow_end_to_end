@@ -1,0 +1,5 @@
+# Mỗi dòng 1 URL. KHÔNG ghi mật khẩu vào đây: {rtsp_cam_1} là id của Airflow Connection
+# (Admin → Connections, Login + Password) — xem src/modules/rtsp_credentials.py.
+"rtsp://{rtsp_cam_1}@192.168.1.10:554/stream0"
+"rtsp://{rtsp_cam_1}@192.168.1.11:554/cam/realmonitor?channel=1&subtype=0"
+"rtsp://192.168.1.12:554/stream0"

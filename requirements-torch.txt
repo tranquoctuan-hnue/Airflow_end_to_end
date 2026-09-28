@@ -1,0 +1,6 @@
+# PyTorch bản CUDA 11.8 (đúng bản máy gốc, GTX 1660 SUPER, driver >= 520).
+# Cài: pip install -r requirements-torch.txt --index-url https://download.pytorch.org/whl/cu118
+# Máy không có GPU NVIDIA: đổi index-url thành https://download.pytorch.org/whl/cpu
+# (chạy được nhưng bộ lọc CLIP/VideoMAE rất chậm).
+torch==2.7.1
+torchvision==0.22.1

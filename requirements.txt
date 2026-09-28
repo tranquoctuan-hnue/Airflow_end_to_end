@@ -1,0 +1,41 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Thư viện cho CRAWLER video (5 DAG social_crawler_* + camera_source_youtube_live).
+# Cài bằng scripts/setup.sh — KHÔNG cài thẳng file này trước Airflow:
+#   1. Airflow cài riêng kèm file constraints chính thức (setup.sh làm việc này)
+#   2. torch/torchvision cài từ index CUDA riêng (xem requirements-torch.txt)
+#   3. rồi mới: pip install -r requirements.txt
+# Phiên bản = đúng bản đang chạy ổn định trên máy gốc (Python 3.10, 2026-09).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Tải video / tìm URL ──────────────────────────────────────────────────────
+# yt-dlp phải MỚI: YouTube đổi cơ chế thường xuyên, bản 2026.07.04 bị HTTP 403
+# (đo 2026-09-28). Bản cũ → YouTube tải hỏng hàng loạt. Cần thêm deno (setup.sh).
+yt-dlp==2026.8.19
+playwright==1.60.0
+requests==2.32.5
+beautifulsoup4==4.14.3
+lxml==6.0.2
+pycryptodome==3.23.0          # scripts/import_browser_cookies.py giải mã cookie Chrome
+
+# ── Sinh từ khóa bằng Gemini ─────────────────────────────────────────────────
+google-genai==2.5.0
+python-dotenv==1.2.1
+
+# ── Dedup (phash) + xử lý video/ảnh ──────────────────────────────────────────
+numpy==1.26.4
+pillow==12.0.0
+opencv-python==4.6.0.66
+ImageHash==4.3.2
+decord==0.6.0
+
+# ── Bộ lọc CCTV (CLIP + OCR timestamp) — crawler_core/cctv_detector.py ──────
+open_clip_torch==3.3.0
+timm==1.0.25
+ftfy==6.1.1
+regex==2026.3.32
+huggingface_hub==1.21.0
+safetensors==0.8.0
+scikit-learn==1.7.2
+joblib==1.5.3
+tqdm==4.67.1
+pytesseract==0.3.13           # cần cài thêm gói hệ thống tesseract-ocr
