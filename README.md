@@ -1,4 +1,4 @@
-# Airflow End-to-End: thu thập dataset video CCTV
+# Airflow End-to-End: nền tảng thu thập dữ liệu thị giác từ video và camera
 
 Dự án dùng Apache Airflow 3 để thu thập dữ liệu huấn luyện từ hai loại nguồn:
 
