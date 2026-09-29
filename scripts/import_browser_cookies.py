@@ -63,6 +63,11 @@ def do_list():
         tag = f"{browser}" + (f" [{profile}]" if profile else " [Default]")
         try:
             jar = load_jar(browser, profile)
+        except RuntimeError as e:
+            # Có browser nhưng không giải mã được — PHẢI báo: trước đây bỏ qua im lặng nên
+            # Chrome "biến mất" khỏi danh sách dù đã đăng nhập đủ (2026-09-29, 192.169.1.168)
+            print(f"  {tag}  ✗ {e}\n")
+            continue
         except Exception:
             continue        # browser/profile không tồn tại → bỏ qua im lặng
 

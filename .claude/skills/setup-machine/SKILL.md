@@ -69,6 +69,16 @@ Ba file là nguồn sự thật: `scripts/setup.sh` (cài), `scripts/doctor.py` 
   (GNOME Keyring).
 - **Bẫy:** headless cũ của Playwright bị X trả trang trống. Kiểm tra phiên phải dùng
   `channel='chromium'` (headless mới).
+- **Bẫy: Chrome "biến mất" khỏi `import_browser_cookies.py --list`** (máy 192.169.1.168,
+  2026-09-29). Có hai nguyên nhân chồng nhau:
+  - thiếu thư viện `secretstorage` trong venv;
+  - chạy ngoài cửa sổ desktop (SSH, dịch vụ nền) thì `DESKTOP_SESSION` trống, yt-dlp
+    chọn keyring `BASICTEXT` và không hỏi GNOME Keyring.
+
+  Kết quả là 0/154 cookie v11 giải mã được. `browser_cookies.load_jar()` giờ tự nối
+  `/run/user/<uid>/bus` và tự chọn `GNOMEKEYRING` (đo lại: 149/154). Chrome vẫn không
+  giải mã được thì lệnh báo lỗi rõ ràng, không bỏ qua im lặng nữa. Nếu không phải
+  GNOME, đặt `COOKIE_KEYRING`.
 
 ## Không được làm
 

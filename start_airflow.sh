@@ -113,6 +113,7 @@ export AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS="${AIRFLOW__CORE__SIMPLE_AUTH_MA
 # Nạp SAU các giá trị mặc định ở trên để .env ghi đè được chúng (vd. đường dẫn
 # lưu video, model, NAS, tài khoản Reddit/Facebook).
 if [ -f "$PROJECT_DIR/.env" ]; then
+  chmod 600 "$PROJECT_DIR/.env"      # có token Telegram / tài khoản — chỉ chủ máy đọc
   set -a; . "$PROJECT_DIR/.env"; set +a
 else
   echo "⚠  Chưa có .env — dùng mặc định. Tạo từ mẫu: cp .env.example .env"
@@ -171,6 +172,14 @@ airflow variables get crawler_filters >/dev/null 2>&1 || \
 PW_FILE="$PROJECT_DIR/simple_auth_manager_passwords.json.generated"
 [ -f "$PW_FILE" ] || { touch "$PW_FILE"; }
 chmod 600 "$PW_FILE"
+
+# Chạy qua SSH / dịch vụ nền thì thiếu biến của phiên desktop → notify-send và GNOME
+# Keyring (giải mã cookie Chrome, platform_crawlers/browser_cookies.py) không tới được
+# phiên đang mở. Nối vào bus của phiên desktop nếu nó còn đó.
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ] && [ -S "/run/user/$(id -u)/bus" ]; then
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+fi
 
 # Start Airflow standalone
 echo "Starting Airflow Standalone at $AIRFLOW_HOME"

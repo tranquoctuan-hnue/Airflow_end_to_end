@@ -40,9 +40,63 @@ class _Quiet:
     def to_screen(self, *a, **k): pass
 
 
+class _Count(_Quiet):
+    """Như _Quiet nhưng đếm cookie KHÔNG giải mã được — để báo lỗi rõ thay vì trả jar rỗng."""
+    undecrypted = 0
+
+    def warning(self, msg, *a, **k):
+        if 'cannot decrypt' in str(msg):
+            self.undecrypted += 1
+
+
+def _ensure_session_bus():
+    """Chạy ngoài cửa sổ desktop (SSH, dịch vụ nền) thì thiếu DBUS_SESSION_BUS_ADDRESS →
+    không nói chuyện được với GNOME Keyring. Phiên desktop vẫn mở thì bus nằm ở
+    /run/user/<uid>/bus — nối vào đó."""
+    if os.environ.get('DBUS_SESSION_BUS_ADDRESS'):
+        return
+    run = f'/run/user/{os.getuid()}'
+    if os.path.exists(f'{run}/bus'):
+        os.environ['DBUS_SESSION_BUS_ADDRESS'] = f'unix:path={run}/bus'
+        os.environ.setdefault('XDG_RUNTIME_DIR', run)
+
+
+def _keyring() -> str | None:
+    """Keyring chứa khóa giải mã cookie Chrome (mục "Chrome Safe Storage").
+
+    yt-dlp tự đoán theo DESKTOP_SESSION / XDG_CURRENT_DESKTOP. Ngoài cửa sổ desktop hai
+    biến đó trống → nó đoán "OTHER" → chọn BASICTEXT → KHÔNG hỏi keyring → mọi cookie
+    v11 báo "no key found", jar rỗng. Đo 2026-09-29 máy 192.169.1.168 qua SSH: 0/154
+    cookie; chỉ định GNOMEKEYRING (+ có thư viện secretstorage) → 149/154, đủ phiên
+    X/Facebook/Reddit/Dailymotion. Ghi đè bằng env COOKIE_KEYRING (GNOMEKEYRING |
+    KWALLET5 | KWALLET6 | BASICTEXT)."""
+    forced = os.environ.get('COOKIE_KEYRING', '').strip().upper()
+    if forced:
+        return forced
+    if os.environ.get('XDG_CURRENT_DESKTOP') or os.environ.get('DESKTOP_SESSION'):
+        return None                                  # yt-dlp tự đoán đúng
+    try:
+        import secretstorage  # noqa: F401
+    except ImportError:
+        return None
+    return 'GNOMEKEYRING'
+
+
 def load_jar(browser: str, profile: str | None):
     from yt_dlp.cookies import extract_cookies_from_browser
-    return extract_cookies_from_browser(browser, profile, _Quiet())
+    _ensure_session_bus()
+    log = _Count()
+    keyring = _keyring() if browser != 'firefox' else None
+    jar = extract_cookies_from_browser(browser, profile, log, keyring=keyring)
+    if log.undecrypted and len(jar) == 0:
+        try:
+            import secretstorage  # noqa: F401
+            hint = ('keyring khóa hoặc không truy cập được — cần phiên desktop đang đăng nhập '
+                    '(đặt COOKIE_KEYRING nếu không phải GNOME)')
+        except ImportError:
+            hint = 'thiếu thư viện secretstorage: airflow_venv/bin/pip install secretstorage'
+        raise RuntimeError(f'{browser}: không giải mã được {log.undecrypted} cookie — {hint}')
+    return jar
 
 
 def cookies_for(jar, domains: list[str]) -> list:

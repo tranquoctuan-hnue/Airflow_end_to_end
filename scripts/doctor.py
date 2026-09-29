@@ -49,7 +49,7 @@ for mod, why in [
     ('airflow', 'Airflow'), ('yt_dlp', 'tải video'), ('playwright', 'discovery X/Reddit/FB'),
     ('cv2', 'xử lý video'), ('imagehash', 'dedup L3/L4'), ('decord', 'đọc frame VideoMAE'),
     ('open_clip', 'bộ lọc CCTV'), ('timm', 'VideoMAE'), ('pytesseract', 'OCR timestamp'),
-    ('google.genai', 'sinh từ khóa Gemini'), ('dotenv', 'đọc .env'),
+    ('google.genai', 'sinh từ khóa Gemini'), ('dotenv', 'đọc .env'), ('secretstorage', 'giải mã cookie Chrome (GNOME Keyring)'),
 ]:
     try:
         m = importlib.import_module(mod)
