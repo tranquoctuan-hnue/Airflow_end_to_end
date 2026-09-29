@@ -103,8 +103,13 @@ echo
 cat <<EOF
 
 Xong phần cài đặt. Còn lại (xem README.md → "Cài đặt trên máy mới"):
-  1. Sửa .env: CRAWL_VIDEO_OUTPUT_DIR, (tùy chọn) VIDEOMAE_MODEL_DIR, Reddit OAuth
+  1. Mở file .env (cấu hình riêng máy này, không vào git) và sửa:
+     - CRAWL_VIDEO_OUTPUT_DIR=/thư/mục/lưu/video   ← BẮT BUỘC: mặc định là NAS của máy gốc
+     - VIDEOMAE_MODEL_DIR=...   chỉ khi model KHÔNG để ở models/Video_understanding/
+     - REDDIT_CLIENT_ID / _SECRET / _USERNAME / _PASSWORD   không bắt buộc: API Reddit
+       nhanh hơn trình duyệt; tạo app loại "script" tại https://www.reddit.com/prefs/apps
   2. Chép model vào models/ (models/README.md)
-  3. Nhập cookie các platform cần đăng nhập: python scripts/import_browser_cookies.py x
-  4. Chạy: ./start_airflow.sh   → mở http://localhost:8080
+  3. Điền Gemini API key vào config/gemini_keys.json (không có → dùng từ khóa tĩnh)
+  4. Nhập cookie các platform cần đăng nhập: airflow_venv/bin/python scripts/import_browser_cookies.py x
+  5. Chạy: ./start_airflow.sh   → mở http://localhost:8080
 EOF
