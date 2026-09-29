@@ -151,7 +151,7 @@ class DBManager:
                           file_path: str = None, final_category: str = None,
                           reject_reason: str = None, filter_detail: str = None):
         """
-        file_path: với video bị loại khi CRAWL_REJECT_ACTION=move, đây là đường dẫn
+        file_path: với video bị loại được lưu lại (move, xem crawler_reject_action), đây là đường dẫn
             trong thư mục loại (REJECTED_BASE), KHÔNG phải trong dataset.
         filter_detail: chuỗi JSON kết quả các bộ lọc đã chạy.
         """

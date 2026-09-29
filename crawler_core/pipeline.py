@@ -39,9 +39,17 @@ chắc chắn cùng 1 video — không có gì để đánh giá, tải lại ch
 L1 chỉ bắt trùng trong cùng platform. L2/L3/L4 không filter platform →
 chính chúng bắt cùng một clip CCTV được đăng lại trên FB + TikTok + YouTube.
 
-── Video bị loại: di chuyển hay xóa ────────────────────────────────────────
-    CRAWL_REJECT_ACTION=move    (mặc định) chuyển sang REJECTED_BASE để kiểm tra
-    CRAWL_REJECT_ACTION=delete  xóa luôn — khi đã tin các bộ lọc
+── Video bị loại: di chuyển hay xóa — CHỌN RIÊNG TỪNG LÝ DO LOẠI ─────────────
+    move    chuyển sang REJECTED_BASE/<lý do>/<nhãn>/ + <file>.json để người kiểm tra
+    delete  xóa luôn — khi đã tin bộ lọc đó
+  Mỗi lý do (= tên thư mục con của video_rejected/) chọn riêng qua Variable
+  `crawler_reject_action` trên web, ví dụ đã tin lọc 9:16 và trùng lặp:
+      {"*": "move", "portrait": "delete", "dedup": "delete"}
+  Khóa: portrait | dup_l2 | dup_l3 | dup_l4 | not_cctv | uncertain_cctv |
+        no_valid_frame | no_event, nhóm "dedup" = dup_l2/l3/l4, "cctv" = not_cctv/
+        uncertain_cctv/no_valid_frame, "*" = còn lại. Ưu tiên: lý do > nhóm > "*" >
+        env CRAWL_REJECT_ACTION (mặc định move). Xem resolve_reject_actions() trong
+        dags/social_crawler_common.py.
     CRAWL_REJECTED_DIR=...      đổi chỗ chứa (mặc định cạnh OUTPUT_BASE, xem
                                 crawler_core/downloader.py REJECTED_BASE)
 Dù move hay delete, lý do loại LUÔN được ghi vào video_urls.reject_reason và
@@ -78,6 +86,27 @@ def load_classifier(kind: str | None = None):
     )
 
 REJECT_ACTION = os.environ.get('CRAWL_REJECT_ACTION', 'move').strip().lower() or 'move'
+
+# Lý do loại → nhóm (khớp FILTERS trong dags/social_crawler_common.py) — để bật/tắt lưu
+# theo cả nhóm ("dedup": "delete") hoặc từng lý do ("dup_l3": "move").
+REJECT_GROUPS = {
+    'portrait': 'portrait',
+    'dup_l2': 'dedup', 'dup_l3': 'dedup', 'dup_l4': 'dedup',
+    'not_cctv': 'cctv', 'uncertain_cctv': 'cctv', 'no_valid_frame': 'cctv',
+    'no_event': 'videomae',
+}
+
+
+def action_for(outcome: str, rules, default: str = REJECT_ACTION) -> str:
+    """move/delete cho 1 lý do loại. rules: str (chung mọi lý do) hoặc dict
+    {lý do | nhóm | '*': 'move'|'delete'}; ưu tiên lý do > nhóm > '*' > default."""
+    if isinstance(rules, str):
+        return rules
+    rules = rules or {}
+    for key in (outcome, REJECT_GROUPS.get(outcome), '*'):
+        if key and key in rules:
+            return rules[key]
+    return default
 
 # Mô tả lý do loại bằng lời — ghi vào file .json cạnh video bị loại
 _REASON_TEXT = {
@@ -230,8 +259,8 @@ class VideoPipeline:
         dedup_content: True = loại video trùng nội dung (L2/L3/L4). False = vẫn
                        tính + lưu fingerprint (để lượt sau so được) nhưng KHÔNG
                        loại. L0/L1 luôn bật — tắt thì mỗi lượt xử lý lại mọi URL cũ.
-        reject_action: 'move' (chuyển video bị loại sang rejected_base) hoặc
-                       'delete'. Mặc định lấy từ env CRAWL_REJECT_ACTION.
+        reject_action: 'move' / 'delete' cho MỌI lý do, hoặc dict theo từng lý do
+                       loại / nhóm (xem action_for). Mặc định env CRAWL_REJECT_ACTION.
         rejected_base: gốc thư mục chứa video bị loại (mặc định REJECTED_BASE).
     """
 
@@ -246,7 +275,7 @@ class VideoPipeline:
         resolve_short_links: bool = True,
         dedup_content: bool = True,
         event_filter=None,
-        reject_action: str | None = None,
+        reject_action: str | dict | None = None,
         rejected_base: str | None = None,
     ):
         self.db                  = db
@@ -259,16 +288,20 @@ class VideoPipeline:
         self.dedup_content       = dedup_content
         self.event_filter        = event_filter
         self.output_base         = downloader.output_base
-        self.reject_action       = (reject_action or REJECT_ACTION).lower()
+        self.reject_action       = (
+            {str(k): str(v).lower() for k, v in reject_action.items()}
+            if isinstance(reject_action, dict) else (reject_action or REJECT_ACTION).lower())
         self.rejected_base       = rejected_base or REJECTED_BASE
         self.stats               = PipelineStats()
 
-        if self.reject_action not in ('move', 'delete'):
+        rules = self.reject_action if isinstance(self.reject_action, dict) else {'*': self.reject_action}
+        bad = {k: v for k, v in rules.items() if v not in ('move', 'delete')}
+        if bad or REJECT_ACTION not in ('move', 'delete'):
             raise ValueError(
-                f"CRAWL_REJECT_ACTION={self.reject_action!r} không hợp lệ — "
+                f"reject_action không hợp lệ: {bad or REJECT_ACTION!r} — "
                 f"chỉ nhận 'move' hoặc 'delete'"
             )
-        if self.reject_action == 'move':
+        if any(self.action_for(o) == 'move' for o in REJECT_GROUPS):
             # Tạo ngay đầu task: NAS chưa mount thì chết sớm với lỗi rõ ràng,
             # không đợi tới video bị loại đầu tiên.
             os.makedirs(self.rejected_base, exist_ok=True)
@@ -571,6 +604,9 @@ class VideoPipeline:
 
     # ── Helpers ────────────────────────────────────────────────────────
 
+    def action_for(self, outcome: str) -> str:
+        return action_for(outcome, self.reject_action)
+
     def _reject(self, ctx: dict, outcome: str, checks: dict,
                 staged: str | None = None, frame: str | None = None) -> str:
         """
@@ -579,7 +615,7 @@ class VideoPipeline:
         """
         url = ctx['url']
         kept = None
-        if staged and self.reject_action == 'move':
+        if staged and self.action_for(outcome) == 'move':
             dest_dir = os.path.join(self.rejected_base, outcome, ctx['category'])
             kept = move_file(staged, dest_dir)
             if kept:

@@ -163,6 +163,14 @@ airflow variables get crawler_rotation >/dev/null 2>&1 || \
     '{"enabled": true, "order": ["youtube", "dailymotion", "reddit"]}' \
     --description 'Vòng xoay DAG crawler: order = thứ tự platform, enabled=false để dừng sau lượt hiện tại'
 
+# Lưu video bị loại để kiểm tra hay xóa — chọn riêng từng lý do (tên thư mục trong
+# video_rejected/). Bộ lọc nào đã tin thì đổi sang "delete", ví dụ:
+#   {"*": "move", "portrait": "delete", "dedup": "delete"}
+# Xem resolve_reject_actions() trong dags/social_crawler_common.py. CHỈ tạo khi chưa có.
+airflow variables get crawler_reject_action >/dev/null 2>&1 || \
+  airflow variables set crawler_reject_action '{"*": "move"}' \
+    --description 'Video bị loại: "move" = lưu vào video_rejected/<lý do>/ để kiểm tra, "delete" = xóa. Khóa: portrait | dup_l2 | dup_l3 | dup_l4 | not_cctv | uncertain_cctv | no_valid_frame | no_event | nhóm dedup / cctv / videomae | "*"'
+
 airflow variables get crawler_filters >/dev/null 2>&1 || \
   airflow variables set crawler_filters '{}' \
     --description 'Bật/tắt bộ lọc theo platform. VD: {"youtube": {"cctv": false}}. Khóa: cctv | portrait | dedup; "*" = mọi platform'

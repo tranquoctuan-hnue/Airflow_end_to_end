@@ -35,7 +35,7 @@ Scraper (theo platform) ── URL ──►  L0  URL đã xử lý?           �
                                     9:16  video dọc?             ┐
                                     L2  trùng SHA-256?           │ bị loại → video_rejected/<lý do>/<nhãn>/
                                     L3  trùng phash frame giữa?  │   kèm <file>.json ghi lý do
-                                    L4  trùng fingerprint 5 frame│   (hoặc xóa: CRAWL_REJECT_ACTION=delete)
+                                    L4  trùng fingerprint 5 frame│   (lưu hay xóa: chọn riêng từng lý do)
                                     CLIP  có phải CCTV?          │
                                     VideoMAE  có sự việc?        ┘
                                     ✓  chuyển vào <dataset>/<nhãn>/ + lưu fingerprint
@@ -45,6 +45,9 @@ Scraper (theo platform) ── URL ──►  L0  URL đã xử lý?           �
 - **Lý do loại luôn được ghi vào DB**, ở `video_urls.reject_reason` và `filter_detail`.
   Nhờ vậy anh/chị đánh giá được từng bộ lọc có loại đúng không.
 - **Mỗi bộ lọc bật/tắt được theo từng platform** ngay trên giao diện web.
+- **Video bị loại được lưu lại để kiểm tra, tách theo từng lý do.** Khi đã tin một bộ lọc,
+  có thể chuyển riêng lý do đó sang xóa luôn, các lý do khác vẫn lưu như cũ. Xem dòng
+  `crawler_reject_action` trong mục "Vận hành hằng ngày".
 
 Các DAG dùng GPU chung **pool `social_crawler_gpu` 1 slot**, nên mỗi lúc chỉ một task
 nạp model lên GPU. Nếu không có pool này, máy 6 GB sẽ hết VRAM.
@@ -281,6 +284,7 @@ Mọi thao tác đều làm được trên giao diện web, không cần sửa c
 | **Dừng vòng** (an toàn) | Sửa `crawler_rotation` thành `"enabled": false`. DAG đang chạy xong lượt của nó rồi dừng |
 | Tắt một bộ lọc cho một lượt | Form Trigger: các ô *Lọc CCTV / 9:16 / trùng / VideoMAE* → **Tắt** |
 | Tắt một bộ lọc lâu dài | Variable `crawler_filters`: `{"youtube": {"cctv": false}, "*": {"portrait": false}}` |
+| **Thôi lưu video bị loại của 1 bộ lọc** (đã tin bộ lọc đó) | Variable `crawler_reject_action`: `{"*": "move", "portrait": "delete", "dedup": "delete"}`. Khóa trùng tên thư mục trong `video_rejected/`: `portrait`, `dup_l2`, `dup_l3`, `dup_l4`, `not_cctv`, `uncertain_cctv`, `no_valid_frame`, `no_event`; nhóm `dedup` (L2–L4), `cctv`, `videomae`; `"*"` cho các lý do còn lại. `"move"` = lưu, `"delete"` = xóa. Lý do loại **luôn được ghi vào DB** dù lưu hay xóa |
 | Chạy thử không ghi DB | Form Trigger: tick **"Chế độ test"** |
 | Chạy N lượt liền | Trigger → **Backfill**, mỗi ngày trong khoảng chọn là một lượt |
 | Dừng ngay một task | Grid → bấm vào task → **Mark as → Failed** |

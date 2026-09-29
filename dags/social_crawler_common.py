@@ -194,6 +194,40 @@ def resolve_filters(platform: str, params: dict) -> tuple[dict, dict]:
     return enabled, source
 
 
+# ---------------------------------------------------------------------------
+# Video bị loại: lưu lại để kiểm tra hay xóa — CHỌN RIÊNG TỪNG LÝ DO LOẠI
+# ---------------------------------------------------------------------------
+# Người dùng tự xem video trong video_rejected/<lý do>/ để đánh giá từng bộ lọc; bộ lọc
+# nào đã tin thì tắt lưu riêng cho nó (Admin → Variables → crawler_reject_action), các
+# bộ lọc còn lại vẫn lưu. Áp dụng cho mọi lượt, kể cả lượt tự động của vòng xoay.
+#     {"*": "move", "portrait": "delete", "dedup": "delete"}
+# Khóa = tên thư mục lý do (portrait, dup_l2, dup_l3, dup_l4, not_cctv, uncertain_cctv,
+# no_valid_frame, no_event) hoặc nhóm (dedup, cctv, videomae) hoặc "*". Lý do loại
+# LUÔN được ghi vào DB dù move hay delete.
+REJECT_VARIABLE = 'crawler_reject_action'
+
+
+def resolve_reject_actions() -> dict:
+    """{lý do loại: 'move'|'delete'} cho lượt này (Variable → env CRAWL_REJECT_ACTION)."""
+    from crawler_core.pipeline import REJECT_ACTION, REJECT_GROUPS
+    rules = {'*': REJECT_ACTION}
+    try:
+        from airflow.sdk import Variable
+        var = Variable.get(REJECT_VARIABLE, default={}, deserialize_json=True) or {}
+    except Exception as e:
+        logger.warning(f"Không đọc được Variable {REJECT_VARIABLE}: {e} — dùng {REJECT_ACTION}")
+        var = {}
+    known = set(REJECT_GROUPS) | set(REJECT_GROUPS.values()) | {'*'}
+    for k, v in (var.items() if isinstance(var, dict) else []):
+        v = str(v).strip().lower()
+        if k in known and v in ('move', 'delete'):
+            rules[k] = v
+        else:
+            logger.warning(f"Variable {REJECT_VARIABLE}: bỏ qua {k!r}={v!r} "
+                           f"(khóa hợp lệ: {sorted(known)}; giá trị: move | delete)")
+    return rules
+
+
 def _filter_param(key: str) -> Param:
     return Param(
         'auto', type='string', enum=['auto', 'on', 'off'],
@@ -442,8 +476,10 @@ def task_crawl_platform(platform: str, **context):
         dedup_content=filters['dedup'],
         event_filter=event_filter,
         rejected_base=sandbox['rejected'] if sandbox else None,
+        reject_action=resolve_reject_actions(),
     )
 
+    from crawler_core.pipeline import REJECT_GROUPS
     from platform_crawlers import labels as L
     from platform_crawlers import label_cursor
     active_labels = L.enabled_labels()
@@ -462,8 +498,10 @@ def task_crawl_platform(platform: str, **context):
         f"  phân loại CCTV             : "
         f"{getattr(classifier, 'name', type(classifier).__name__) if classifier else '—'}\n"
         f"  lọc sự việc (VideoMAE)     : {event_filter.name if event_filter else '—'}\n"
-        f"  video bị loại              : "
-        f"{f'chuyển sang {pipeline.rejected_base}' if pipeline.reject_action == 'move' else 'XÓA LUÔN'}\n"
+        f"  video bị loại → {pipeline.rejected_base}\n"
+        + ''.join(
+            f"      {o:23}: {'lưu lại để kiểm tra' if pipeline.action_for(o) == 'move' else 'XÓA LUÔN'}\n"
+            for o in REJECT_GROUPS)
         + ''.join(
             f"  lọc {k:23}: {'BẬT' if on else 'TẮT'}  ({filter_source[k]})\n"
             for k, on in filters.items())

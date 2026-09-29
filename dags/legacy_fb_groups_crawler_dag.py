@@ -20,7 +20,7 @@ crawler_core.pipeline.VideoPipeline, đúng cùng một cổng mà
 
   L0 URL đã xử lý → L1 canonical ID → download (staging)
   → 9:16 filter → L2 file hash → L3 thumbnail phash → L4 5-frame fingerprint
-  → phân loại CCTV → dataset  (video bị loại: xem CRAWL_REJECT_ACTION trong pipeline.py)
+  → phân loại CCTV → dataset  (video bị loại: lưu/xóa theo Variable crawler_reject_action)
 
 Nhờ dùng chung fingerprint store, một clip CCTV đã tải từ TikTok sẽ bị L3/L4
 chặn khi gặp lại trên Facebook (và ngược lại).
