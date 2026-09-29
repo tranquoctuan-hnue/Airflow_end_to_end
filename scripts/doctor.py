@@ -64,6 +64,13 @@ try:
     report('ok' if ver >= '2026.08.19' else 'warn', f'yt-dlp {ver}',
            '' if ver >= '2026.08.19' else 'bản cũ — YouTube hay lỗi HTTP 403',
            'pip install -U yt-dlp')
+    # Dailymotion bắt buộc impersonate firefox → cần curl_cffi (requirements.txt)
+    from yt_dlp.networking.impersonate import ImpersonateTarget
+    from yt_dlp import YoutubeDL
+    with YoutubeDL({'quiet': True}) as ydl:
+        ok = any(t.client == 'firefox' for t, _ in ydl._get_available_impersonate_targets())
+    report('ok' if ok else 'fail', 'yt-dlp impersonate firefox (Dailymotion)', '' if ok else 'thiếu curl_cffi',
+           'airflow_venv/bin/pip install -r requirements.txt')
 except Exception:
     pass
 

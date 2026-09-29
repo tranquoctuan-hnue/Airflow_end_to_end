@@ -11,6 +11,10 @@
 # yt-dlp phải MỚI: YouTube đổi cơ chế thường xuyên, bản 2026.07.04 bị HTTP 403
 # (đo 2026-09-28). Bản cũ → YouTube tải hỏng hàng loạt. Cần thêm deno (setup.sh).
 yt-dlp==2026.8.19
+# Dailymotion trong yt-dlp mới BẮT BUỘC giả dạng trình duyệt (impersonate firefox) — thiếu
+# curl_cffi thì MỌI video Dailymotion lỗi "none of these impersonate targets are
+# available: firefox" (máy 192.169.1.168, 2026-09-29). 0.15.0 có target Firefox-133/135.
+curl_cffi==0.15.0
 playwright==1.60.0
 # Đọc GNOME Keyring để giải mã cookie Chrome (khóa "Chrome Safe Storage"). Thiếu thì
 # Chrome bản mới (cookie v11) giải mã được 0 cookie — đo 2026-09-29 máy 192.169.1.168.
