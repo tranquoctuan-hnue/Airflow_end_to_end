@@ -47,7 +47,7 @@ report('ok' if v[:2] == (3, 10) else 'warn', f'Python {v.major}.{v.minor}.{v.mic
 
 for mod, why in [
     ('airflow', 'Airflow'), ('yt_dlp', 'tải video'), ('playwright', 'discovery X/Reddit/FB'),
-    ('cv2', 'xử lý video'), ('imagehash', 'dedup L3/L4'), ('decord', 'đọc frame VideoMAE'),
+    ('cv2', 'xử lý video'), ('imagehash', 'dedup L3/L4'), ('decord', 'chỉ khi VIDEOMAE_DECODER=decord'),
     ('open_clip', 'bộ lọc CCTV'), ('timm', 'VideoMAE'), ('pytesseract', 'OCR timestamp'),
     ('google.genai', 'sinh từ khóa Gemini'), ('dotenv', 'đọc .env'), ('secretstorage', 'giải mã cookie Chrome (GNOME Keyring)'),
 ]:

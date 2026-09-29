@@ -66,7 +66,7 @@ luồng trong `README.md`. Nếu bộ lọc chạy model, ghi đường dẫn mo
   - nạp checkpoint bằng mmap;
   - đọc cấu hình từ `ckpt['args']`;
   - chấm theo đoạn 5 giây;
-  - có đường dự phòng đọc frame bằng ffmpeg khi decord không đọc được (AV1);
+  - đọc frame bằng ffmpeg tuần tự, thu nhỏ lúc giải mã. **Không dùng decord `get_batch`**: nó tự giải mã cả video ở độ phân giải gốc vào RAM (video 12 phút 1080p → OOM 13,7 GB, 2026-09-29). Bộ lọc mới nào cũng phải đo RAM với video dài;
   - tự giảm batch khi hết VRAM.
 - Model cần GPU thì task vẫn nằm trong pool `social_crawler_gpu`, nên không cần làm gì
   thêm. **Đừng nạp hai model lớn cùng lúc** trên GPU 6 GB.

@@ -33,6 +33,8 @@ numpy==1.26.4
 pillow==12.0.0
 opencv-python==4.6.0.66
 ImageHash==4.3.2
+# decord: chỉ còn dùng khi đặt VIDEOMAE_DECODER=decord để so sánh — mặc định VideoMAE đọc
+# frame bằng ffmpeg vì decord giải mã cả video vào RAM (OOM, xem crawler_core/videomae_filter.py)
 decord==0.6.0
 
 # ── Bộ lọc CCTV (CLIP + OCR timestamp) — crawler_core/cctv_detector.py ──────

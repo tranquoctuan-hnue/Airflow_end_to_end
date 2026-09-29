@@ -15,12 +15,18 @@ thời gian (clip 16 frame × sampling 4, rải đều trong đoạn) × 3 crop 
 15 view, tiền xử lý bằng chính make_view() của repo (resize cạnh ngắn 224, crop,
 chuẩn hóa ImageNet) → trung bình logits → softmax. Đoạn ngắn hơn 1 clip thì dùng
 1 clip lặp frame cuối × 3 crop, như make_views(). Đoạn đuôi ngắn vẫn được chấm.
-Khác segment_infer.py duy nhất ở chỗ KHÔNG cắt từng đoạn ra file bằng ffmpeg mà
-đọc thẳng frame theo chỉ số (decord) — cùng frame, nhanh hơn nhiều.
+Khác segment_infer.py ở chỗ KHÔNG cắt từng đoạn ra file mà giải mã cả video 1 lượt.
 
-Đọc frame: decord (như lúc train). File decord không đọc được (vd. mã hóa AV1 —
-"cannot find video stream") → tự chuyển sang giải mã tuần tự bằng ffmpeg, frame
-được ffmpeg thu nhỏ trước về cạnh ngắn 224 (tiền xử lý lệch rất nhẹ so với decord).
+Đọc frame: MẶC ĐỊNH ffmpeg giải mã tuần tự, thu nhỏ luôn về cạnh ngắn 224 lúc giải mã,
+chấm xong đoạn 5s nào thả đoạn đó → RAM không phụ thuộc độ dài video.
+KHÔNG dùng decord mặc định nữa (đo 2026-09-29 máy 192.169.1.168): sau get_batch, decord
+tự GIẢI MÃ CẢ VIDEO Ở ĐỘ PHÂN GIẢI GỐC vào RAM ở luồng nền (~1,1 GB/giây, cả H.264
+lẫn VP9; video 1080p 32s đứng ở 5,4 GB = 32s×30fps×1920×1080×3). Video Facebook 12 phút
+1080p → task vượt 13,7 GB → hệ điều hành kill (SIGKILL/OOM). Cùng video đó bằng ffmpeg:
+RAM đứng 1,1 GB, đỉnh 2,65 GB, 145 đoạn trong 231s.
+Kết quả ffmpeg so với decord trên 3 video có nhãn tay: 1172 Road Accident 0,764 = 0,764;
+1310 Fighting 0,789 so với 0,797; 1726 không đạt (Normal 0,805) — cùng kết luận.
+Muốn so sánh lại với decord: VIDEOMAE_DECODER=decord (chỉ dùng cho video ngắn).
 
 Cấu hình model (kiến trúc, số lớp, số frame, sampling rate, input size) đọc từ
 chính checkpoint (ckpt['args']) để không lệch với lúc train. Override bằng env:
@@ -314,6 +320,8 @@ class VideoMAEEventFilter:
                 'normal_prob': round(float(probs[self.normal_idx]), 3)}
 
     def _score_windows(self, path: str) -> list[dict]:
+        if os.environ.get('VIDEOMAE_DECODER', 'ffmpeg').strip().lower() != 'decord':
+            return self._score_windows_ffmpeg(path)
         try:
             from decord import VideoReader, cpu
             vr = VideoReader(path, num_threads=1, ctx=cpu(0))
