@@ -151,29 +151,73 @@ echo "Ensuring GPU pool exists..."
 airflow pools set social_crawler_gpu 1 \
   "1 slot — tránh OOM GPU khi nhiều platform DAG cùng chạy Qwen2.5-VL"
 
-# Bảng bật/tắt bộ lọc theo platform (Admin → Variables → crawler_filters), áp dụng
-# cho cả lượt tự động. Ví dụ tắt lọc CCTV cho YouTube: {"youtube": {"cctv": false}}
-# Khóa: cctv | portrait | dedup; "*" = mọi platform. Xem resolve_filters() trong
-# dags/social_crawler_common.py. CHỈ tạo khi chưa có — không ghi đè cấu hình đã sửa.
+# ── Variables điều khiển crawler (Admin → Variables) ─────────────────────────
+# Mỗi Variable CHỈ tạo khi chưa có — không ghi đè cấu hình người dùng đã sửa. Mô tả
+# hiện trong giao diện: bảng chỉ hiện ~50 ký tự đầu (nên dòng đầu là câu tóm tắt),
+# rê chuột hiện toàn văn nhưng mất xuống dòng (nên mỗi dòng kết thúc bằng dấu câu),
+# form Edit hiện đủ cả xuống dòng. Kiểm tra trên Airflow 3.1.6, 2026-09-29.
+
 # Vòng xoay theo thứ tự cố định (CRAWL_ROTATION_MODE=chain, xem đầu
-# dags/social_crawler_common.py). Sửa "order" để đổi thứ tự / thêm bớt platform,
-# "enabled": false để dừng vòng sau lượt hiện tại. CHỈ tạo khi chưa có.
+# dags/social_crawler_common.py).
+ROTATION_DESC='Thứ tự chạy các DAG crawler nối tiếp nhau.
+"order" = danh sách platform, chạy xong cái này tự chạy cái kế, hết danh sách quay lại đầu. Tên hợp lệ: youtube, dailymotion, reddit, x, facebook.
+"enabled": false = dừng vòng: DAG đang chạy làm xong lượt của nó rồi mới dừng.
+Bắt đầu vòng: Trigger 1 DAG có trong "order", tick ô "Tiếp tục vòng xoay".
+Bỏ qua 1 platform: xóa nó khỏi "order" (đừng Pause DAG, Pause làm cả vòng đứng lại ở đó).
+Ví dụ:
+{"enabled": true, "order": ["youtube", "dailymotion", "reddit"]} → youtube → dailymotion → reddit → youtube… (mặc định).
+{"enabled": true, "order": ["youtube", "dailymotion", "reddit", "x", "facebook"]} → chạy cả 5 platform.
+{"enabled": false, "order": ["youtube", "dailymotion", "reddit"]} → dừng vòng sau lượt đang chạy.'
 airflow variables get crawler_rotation >/dev/null 2>&1 || \
   airflow variables set crawler_rotation \
-    '{"enabled": true, "order": ["youtube", "dailymotion", "reddit"]}' \
-    --description 'Vòng xoay DAG crawler: order = thứ tự platform, enabled=false để dừng sau lượt hiện tại'
+    '{"enabled": true, "order": ["youtube", "dailymotion", "reddit"]}' --description "$ROTATION_DESC"
+
+# Bật/tắt bộ lọc theo platform, áp dụng cho cả lượt tự động. Xem resolve_filters()
+# trong dags/social_crawler_common.py.
+FILTERS_DESC='Bật/tắt bộ lọc cho từng platform.
+true = bật, false = tắt. Không ghi = theo .env (mặc định mọi bộ lọc đều bật).
+Các bộ lọc: cctv = chỉ giữ video camera CCTV; portrait = loại video dọc; dedup = loại video trùng; videomae = chỉ giữ video có sự việc.
+Khóa ngoài cùng: tên platform (youtube, dailymotion, reddit, x, facebook), hoặc "*" = mọi platform. Ghi riêng platform thì thắng "*".
+Chọn "on"/"off" trên form Trigger thì thắng Variable này (chỉ cho lượt đó).
+Ví dụ:
+{} → không đổi gì, theo .env (mặc định).
+{"youtube": {"cctv": false}} → YouTube không lọc CCTV, các platform khác vẫn lọc.
+{"*": {"videomae": false}} → tắt VideoMAE cho mọi platform.
+{"*": {"videomae": false}, "reddit": {"videomae": true}} → tắt VideoMAE mọi nơi, trừ Reddit.'
+airflow variables get crawler_filters >/dev/null 2>&1 || \
+  airflow variables set crawler_filters '{}' --description "$FILTERS_DESC"
 
 # Lưu video bị loại để kiểm tra hay xóa — chọn riêng từng lý do (tên thư mục trong
-# video_rejected/). Bộ lọc nào đã tin thì đổi sang "delete", ví dụ:
-#   {"*": "move", "portrait": "delete", "dedup": "delete"}
-# Xem resolve_reject_actions() trong dags/social_crawler_common.py. CHỈ tạo khi chưa có.
+# video_rejected/). Xem resolve_reject_actions() trong dags/social_crawler_common.py.
+REJECT_DESC='Giữ hay xóa video bị loại, theo từng lý do.
+"move" = giữ lại trong video_rejected/<lý do>/ để bạn tự xem bộ lọc có loại đúng không.
+"delete" = xóa file luôn (DB vẫn nhớ URL nên không tải lại).
+Các lý do: portrait = video dọc; dup_l2, dup_l3, dup_l4 = trùng video đã có; not_cctv, uncertain_cctv, no_valid_frame = không phải (hoặc không chắc là) camera CCTV; no_event = VideoMAE không thấy sự việc.
+Viết gọn cả nhóm bằng: dedup, cctv, videomae. "*" = mọi lý do chưa ghi.
+Ví dụ:
+{"*": "move"} → giữ hết để kiểm tra (mặc định).
+{"*": "move", "portrait": "delete", "dedup": "delete"} → xóa video dọc và video trùng, còn lại giữ.
+{"*": "delete", "videomae": "move"} → chỉ giữ video bị VideoMAE loại, còn lại xóa.
+{"*": "delete"} → xóa hết (ổ đầy, hoặc đã tin mọi bộ lọc).'
 airflow variables get crawler_reject_action >/dev/null 2>&1 || \
-  airflow variables set crawler_reject_action '{"*": "move"}' \
-    --description 'Video bị loại: "move" = lưu vào video_rejected/<lý do>/ để kiểm tra, "delete" = xóa. Khóa: portrait | dup_l2 | dup_l3 | dup_l4 | not_cctv | uncertain_cctv | no_valid_frame | no_event | nhóm dedup / cctv / videomae | "*"'
+  airflow variables set crawler_reject_action '{"*": "move"}' --description "$REJECT_DESC"
 
-airflow variables get crawler_filters >/dev/null 2>&1 || \
-  airflow variables set crawler_filters '{}' \
-    --description 'Bật/tắt bộ lọc theo platform. VD: {"youtube": {"cctv": false}}. Khóa: cctv | portrait | dedup; "*" = mọi platform'
+# `variables set` ghi đè cả giá trị → máy đã có Variable từ trước sẽ giữ mô tả cũ mãi.
+# Cập nhật RIÊNG cột description, không đụng giá trị người dùng đã sửa.
+export ROTATION_DESC FILTERS_DESC REJECT_DESC
+python - <<'PY'
+import os
+from airflow.models import Variable
+from airflow.utils.session import create_session
+DESC = {'crawler_rotation': 'ROTATION_DESC', 'crawler_filters': 'FILTERS_DESC',
+        'crawler_reject_action': 'REJECT_DESC'}
+with create_session() as s:
+    for key, env in DESC.items():
+        v = s.query(Variable).filter(Variable.key == key).one_or_none()
+        if v is not None and v.description != os.environ[env]:
+            v.description = os.environ[env]
+            print(f'✓ Cập nhật mô tả Variable {key}')
+PY
 
 # File mật khẩu web: chỉ chủ máy đọc được (Airflow tạo ra với quyền 664 — mọi tài khoản
 # Linux trên máy đều đọc được mật khẩu admin).
