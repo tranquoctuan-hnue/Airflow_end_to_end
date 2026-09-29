@@ -365,6 +365,7 @@ một lớp giả chép file có sẵn và dùng DB tạm, để test bộ lọc
 
 | Triệu chứng | Nguyên nhân thường gặp | Sửa |
 |---|---|---|
+| `ImportError: numpy.core.multiarray failed to import` khi import `cv2` | Cài thêm gói camera (`--rtsp`) nâng numpy lên 2.x, và `paddleocr → pdf2docx` kéo thêm `opencv-python-headless` ghi đè thư mục `cv2/` | `pip uninstall -y opencv-python-headless && pip install --force-reinstall --no-deps numpy==1.26.4 opencv-python==4.6.0.66 opencv-contrib-python==4.6.0.66`. `setup.sh` đã tự làm bước này |
 | YouTube: `downloaded=0`, lỗi HTTP 403 | yt-dlp cũ | `airflow_venv/bin/pip install -U yt-dlp` |
 | Mọi DAG crawler lỗi ngay khi bắt đầu | Chưa mount NAS / `CRAWL_VIDEO_OUTPUT_DIR` sai | Mount NAS, hoặc sửa đường dẫn trong `.env` |
 | X / Facebook ra 0 URL nhưng task vẫn SUCCESS | Cookie hết hạn | Đăng nhập lại trên Chrome → `scripts/import_browser_cookies.py <platform>` |

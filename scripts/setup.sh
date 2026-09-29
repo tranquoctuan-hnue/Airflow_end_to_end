@@ -74,7 +74,20 @@ if [ "$WITH_RTSP$WITH_QWEN" != "00" ]; then
     /^[a-zA-Z]/ { if ((blk=="a" && rtsp) || (blk=="b" && qwen)) print }' \
     "$PROJECT_DIR/requirements-optional.txt" > "$tmp"
   echo "  + tùy chọn: $(tr '\n' ' ' < "$tmp")"
-  "$PIP" install -q -r "$tmp"; rm -f "$tmp"
+  # -c requirements.txt: giữ nguyên phiên bản crawler đã chốt. Không có nó, pip nâng numpy
+  # 1.26.4 → 2.2.6 để thỏa gói mới → OpenCV 4.6 (build cho numpy 1.x) chết lúc import
+  # "numpy.core.multiarray failed to import" — máy 192.169.1.168, 2026-09-29.
+  "$PIP" install -q -r "$tmp" -c "$PROJECT_DIR/requirements.txt"; rm -f "$tmp"
+  # paddleocr → pdf2docx kéo opencv-python-headless (bản khác) ghi đè CHUNG thư mục cv2/
+  # với opencv-python → cv2 hỏng. Dự án không dùng pdf2docx: gỡ headless, cài lại OpenCV.
+  if "$PIP" show -q opencv-python-headless >/dev/null 2>&1; then
+    "$PIP" uninstall -y -q opencv-python-headless
+    "$PIP" install -q --force-reinstall --no-deps \
+      "$(grep -E '^opencv-python==' "$PROJECT_DIR/requirements.txt")" \
+      "$(grep -E '^opencv-contrib-python==' "$PROJECT_DIR/requirements.txt" || echo opencv-contrib-python==4.6.0.66)"
+  fi
+  "$VENV_DIR/bin/python" -c "import cv2, numpy" \
+    || { echo "✗ cv2/numpy hỏng sau khi cài gói tùy chọn — xem README mục Xử lý sự cố"; exit 1; }
 fi
 
 # ── 5. Trình duyệt cho Playwright (discovery X / Reddit / Facebook / Dailymotion)
