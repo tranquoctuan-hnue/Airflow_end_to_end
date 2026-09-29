@@ -36,9 +36,6 @@ def _save_netscape_cookies(cookies: list, path: str):
 
 
 # All known selectors Facebook uses for the email/password fields
-EMAIL_SELECTORS = ['#email', 'input[name="email"]', 'input[type="email"]', 'input[autocomplete="email"]']
-PASS_SELECTORS = ['#pass', 'input[name="pass"]', 'input[type="password"]', 'input[autocomplete="current-password"]']
-LOGIN_BTN_SELECTORS = ['[name="login"]', '[data-testid="royal_login_button"]', 'button[type="submit"]']
 
 
 class FBSession:
@@ -123,62 +120,11 @@ class FBSession:
             logger.info("Already logged in (c_user cookie present)")
             return
 
-        fb_email = os.environ.get('FB_EMAIL', '')
-        fb_password = os.environ.get('FB_PASSWORD', '')
-
-        if not fb_email or not fb_password:
-            raise EnvironmentError(
-                "Set FB_EMAIL and FB_PASSWORD environment variables before running"
-            )
-
-        # Dismiss cookie consent dialog if shown
-        self._dismiss_consent_dialog()
-
-        # Wait for the page to settle before finding the login form
-        self.page.wait_for_load_state('networkidle', timeout=15000)
-        self.random_delay(1, 2)
-
-        logger.info("Logging into Facebook...")
-
-        email_input = self._find_element(EMAIL_SELECTORS, timeout_ms=8000)
-        if not email_input:
-            raise RuntimeError(
-                "Could not find Facebook email input. "
-                "Try running with FB_HEADLESS=false to inspect the page."
-            )
-        email_input.click()
-        email_input.fill(fb_email)
-        self.random_delay(0.5, 1.5)
-
-        pass_input = self._find_element(PASS_SELECTORS, timeout_ms=5000)
-        if not pass_input:
-            raise RuntimeError("Could not find Facebook password input.")
-        pass_input.click()
-        pass_input.fill(fb_password)
-        self.random_delay(0.5, 1.5)
-
-        login_btn = self._find_element(LOGIN_BTN_SELECTORS, timeout_ms=5000)
-        if login_btn:
-            login_btn.click()
-        else:
-            pass_input.press('Enter')
-
-        self.page.wait_for_load_state('networkidle', timeout=20000)
-        self.random_delay(3, 6)
-
-        if 'checkpoint' in self.page.url or 'two_step' in self.page.url:
-            logger.warning(
-                "Facebook security checkpoint detected. "
-                "Complete verification manually in the browser, "
-                "then re-run with the saved cookies."
-            )
-        elif self._is_logged_in():
-            logger.info("Facebook login successful")
-        else:
-            logger.warning(
-                "Login may have failed — c_user cookie not found after login attempt. "
-                "Try running with FB_HEADLESS=false to debug."
-            )
+        # Không tự điền mật khẩu nữa (2026-09-29): mọi platform đăng nhập bằng Chrome thật,
+        # platform_crawlers/sessions.py lấy cookie sang. Tới đây nghĩa là cookie đã chết.
+        raise RuntimeError(
+            "Cookie Facebook đã hết đăng nhập. Đăng nhập facebook.com trong Chrome rồi chạy: "
+            "airflow_venv/bin/python scripts/check_sessions.py facebook")
 
     def _dismiss_consent_dialog(self):
         """Click 'Allow all cookies' or 'Accept' button if FB shows a consent wall."""

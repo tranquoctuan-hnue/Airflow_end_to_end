@@ -933,7 +933,7 @@ def _reddit_discover_playwright(
 ) -> list[str]:
     """
     Fallback khi không có OAuth credentials — quét HTML công khai.
-    Nếu đã lưu cookie đăng nhập (scripts/save_platform_cookies.py reddit)
+    Nếu đã lưu cookie đăng nhập (scripts/import_browser_cookies.py reddit)
     thì dùng luôn để thấy được bài NSFW.
     """
     from crawler_core.downloader import cookies_json_for

@@ -2,8 +2,8 @@
 DAG legacy_fb_groups_crawler — BẢN CŨ: tải video trong CÁC NHÓM Facebook mà tài khoản đã
 tham gia (không search theo nhãn), lưu hết vào 1 nhãn chung FB_CATEGORY='CCTV'. Không
 nằm trong vòng xoay. Đã thay bằng social_crawler_fb (search tab "Thước phim" theo 27 nhãn);
-giữ lại để quét nhóm khi cần. Đăng nhập: cookie cookies/facebook_legacy_cookies.* do
-scripts/refresh_fb_cookies.py tạo, hoặc FB_EMAIL/FB_PASSWORD.
+giữ lại để quét nhóm khi cần. Đăng nhập: cookie cookies/facebook_legacy_cookies.*, tự
+lấy từ Chrome qua platform_crawlers/sessions.py (đăng nhập facebook.com trong Chrome).
 
 Tên cũ (trước 2026-09-28): fb_cctv_video_crawler, file dags/fb_video_crawler_dag.py.
 
@@ -26,7 +26,7 @@ Nhờ dùng chung fingerprint store, một clip CCTV đã tải từ TikTok sẽ
 chặn khi gặp lại trên Facebook (và ngược lại).
 
 Schedule: mỗi 24 giờ.
-Env vars: FB_EMAIL, FB_PASSWORD
+Đăng nhập: cookie Facebook lấy từ Chrome (platform_crawlers/sessions.py)
 Classifier: load_classifier() — CLIP mặc định, CRAWL_CCTV_CLASSIFIER=qwen để dùng Qwen2.5-VL.
 Deep scan:  FB_DEEP_SCAN=true, hoặc trigger với conf {"deep_scan": true}
 """
@@ -42,7 +42,7 @@ from airflow.operators.python import PythonOperator
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-# Nạp biến môi trường từ .env (Airflow không tự load) — FB_EMAIL, FB_PASSWORD, v.v.
+# Nạp biến môi trường từ .env (Airflow không tự load) — FB_HEADLESS, FB_BATCH_SIZE, v.v.
 try:
     from dotenv import load_dotenv
     load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
@@ -78,6 +78,12 @@ def task_crawl_all_groups(**context):
     from crawler_core.facebook_downloader import VideoDownloader
     from crawler_core.db_manager import DBManager
     from crawler_core.pipeline import VideoPipeline, load_classifier
+    from platform_crawlers import sessions
+
+    # Làm mới cookie từ Chrome (ghi cả cookies/facebook_legacy_cookies.* mà FBSession đọc)
+    s = sessions.ensure_session('facebook')
+    if s.blocking:
+        raise RuntimeError(f'Facebook: {s.message}')
 
     db         = DBManager()
     classifier = load_classifier()      # CLIP (mặc định) | qwen — CRAWL_CCTV_CLASSIFIER

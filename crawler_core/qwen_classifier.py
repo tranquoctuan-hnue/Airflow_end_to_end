@@ -22,7 +22,7 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 BASE_DIR     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Cookie của DAG Facebook nhóm (cũ) — scripts/refresh_fb_cookies.py tạo ra. Bộ phân loại
+# Cookie của DAG Facebook nhóm (cũ) — lấy từ Chrome (platform_crawlers/sessions.py). Bộ phân loại
 # này dùng nó làm cookiefile cho MỌI platform, và yt-dlp ghi ngược cả jar vào đó, nên
 # DAG social_crawler_fb KHÔNG dùng file này (dùng cookies/facebook_cookies.*).
 COOKIES_FILE = os.path.join(BASE_DIR, 'cookies', 'facebook_legacy_cookies.txt')

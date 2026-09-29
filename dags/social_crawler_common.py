@@ -372,6 +372,19 @@ def task_crawl_platform(platform: str, **context):
         time_up=_time_up,
         label_counts=label_counts,
     )
+    # ── Phiên đăng nhập (platform_crawlers/sessions.py) ───────────────
+    # Kiểm tra bằng browser TRƯỚC discovery: cookie X/Facebook có thể chết ở server dù
+    # file còn hạn, lúc đó search ra 0 URL mà task vẫn SUCCESS. Chết → tự nhập lại từ
+    # Chrome của người dùng; Chrome cũng đăng xuất → báo người dùng (desktop/Telegram)
+    # và bỏ qua lượt này (không đụng URL nào), vòng xoay chạy tiếp.
+    from platform_crawlers import sessions
+    if platform in sessions.PLATFORMS:
+        session = sessions.ensure_session(platform)
+        (logger.info if session.ok else logger.warning)(
+            f"[{platform}] Phiên đăng nhập: {session.state} — {session.message}")
+        if session.blocking:
+            return {'platform': platform, 'skipped': f'đăng nhập: {session.message}'}
+
     reason  = scraper.unavailable_reason()
     if reason:
         logger.warning(f"[{platform}] Chưa chạy được: {reason}")

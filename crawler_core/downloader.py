@@ -198,7 +198,8 @@ _DAILYMOTION_TOKEN_CACHE = os.path.join(COOKIES_DIR, 'dailymotion_token_cache.tx
 def cookies_file_for(platform: str | None) -> str | None:
     """
     Cookie định dạng Netscape cho yt-dlp. None nếu chưa có file.
-    Tạo bằng: python scripts/save_platform_cookies.py <platform>
+    Tạo bằng: python scripts/import_browser_cookies.py <platform> (tự làm mới:
+    platform_crawlers/sessions.py)
 
     Dailymotion là ngoại lệ: luôn trả None — truyền cookiefile cho yt-dlp làm
     nó gửi token đã chết và 401 mọi lần. Xem khối giải thích + số đo ở

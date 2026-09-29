@@ -52,6 +52,24 @@ Ba file là nguồn sự thật: `scripts/setup.sh` (cài), `scripts/doctor.py` 
   (`logs/pipeline.log`) ghi thẳng ra file, không đi qua bộ che secret của Airflow.
   `RedactRtspFilter` đã gắn vào logger này, nhưng `print()` thì không được lọc.
 
+## Đăng nhập platform
+
+- **Mọi platform đăng nhập bằng Chrome thật.** Không thêm code tự điền mật khẩu. Ngày
+  2026-09-29 đã thử rồi bỏ:
+  - Reddit chặn mọi Playwright ở `/login` với thông báo "blocked by network security";
+  - X và Facebook đòi mã xác nhận hoặc checkpoint;
+  - Google chặn đăng nhập tự động.
+- **`platform_crawlers/sessions.py`** (DAG tự gọi `ensure_session()` đầu mỗi lượt):
+  - kiểm tra phiên bằng browser;
+  - chết thì tự nhập lại từ Chrome, quét mọi profile;
+  - Chrome cũng hết thì ghi vào `state/sessions/login_needed.json` và báo qua desktop +
+    Telegram.
+- **Máy mới:** đăng nhập Chrome trên máy đó, rồi chạy `scripts/import_browser_cookies.py`.
+  Airflow phải chạy **cùng user, trong phiên desktop** thì mới giải mã được cookie Chrome
+  (GNOME Keyring).
+- **Bẫy:** headless cũ của Playwright bị X trả trang trống. Kiểm tra phiên phải dùng
+  `channel='chromium'` (headless mới).
+
 ## Không được làm
 
 - Commit `.env`, `cookies/`, `gemini_keys.json`, `airflow.cfg`, `rtsp/*.txt` hay

@@ -202,7 +202,7 @@ REDDIT_GLOBAL_SEARCH = os.environ.get(
 #   2. OAuth app-only (chỉ CLIENT_ID + SECRET): chạy được nhưng bài NSFW bị ẩn.
 #
 #   3. Không có gì → fallback Playwright (dùng cookie nếu đã lưu bằng
-#      scripts/save_platform_cookies.py reddit). Chậm hơn và không lọc được
+#      scripts/import_browser_cookies.py reddit). Chậm hơn và không lọc được
 #      bài nào có video trước khi tải.
 REDDIT_HAS_OAUTH = bool(
     os.environ.get('REDDIT_CLIENT_ID', '').strip()

@@ -34,8 +34,8 @@ DAG crawl video CCTV từ Reddit, đi qua cổng dedup 4 tầng dùng chung
 | `crawler_core/dedup.py` → `_PLATFORM_RULES['reddit']` | Canonical ID (L1): `/comments/<id>`, `v.redd.it/<id>`, `redd.it/<id>` (short link) |
 | `crawler_core/downloader.py` → `_COOKIE_PATHS['reddit']` | `cookies/reddit_cookies.txt` cho yt-dlp lúc TẢI |
 | `cookies/reddit_cookies.json` / `.txt` | Cookie đăng nhập — dùng cho tab Media (Playwright), lọc video (`info.json`), và lúc tải (yt-dlp). KHÔNG liên quan OAuth |
-| `scripts/save_platform_cookies.py reddit` | Lưu cookie bằng cách đăng nhập tay trong browser mà script mở ra |
 | `scripts/import_browser_cookies.py reddit` | Lấy cookie từ Chrome thường đang đăng nhập sẵn |
+| `platform_crawlers/sessions.py` | Đầu mỗi lượt: kiểm tra `api/me.json` bằng cookie; chết → tự lấy lại từ Chrome. Reddit chặn Playwright ở `/login` nên KHÔNG có đường tự đăng nhập |
 
 ---
 
@@ -72,8 +72,8 @@ Cookie đăng nhập Reddit THẬT là `reddit_session` + `token_v2` còn hạn.
 `loid`/`edgebucket`/`csv`/`ads_cookie` mà thiếu 2 cái đó = **chưa đăng nhập**
 (giống chuyện `v1st` của Dailymotion — cookie tracking gắn cho mọi khách).
 Thấy cookie `g_state` ⇒ tài khoản đăng nhập **qua Google** ⇒ KHÔNG dùng được
-`save_platform_cookies.py` (Playwright bị Google chặn), phải đi đường
-`import_browser_cookies.py` từ Chrome thường.
+đăng nhập bằng Playwright (Google chặn — script đó đã bỏ 2026-09-29), phải đi
+đường `import_browser_cookies.py` từ Chrome thường.
 
 **Quy trình nhập lại cookie khi hết hạn** (đã chạy thành công 2026-07-31):
 ```bash

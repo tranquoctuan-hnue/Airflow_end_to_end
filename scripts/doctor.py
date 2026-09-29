@@ -151,12 +151,24 @@ else:
 
 # ── Cookie đăng nhập ─────────────────────────────────────────────────────────
 section('Cookie đăng nhập (chỉ cần cho platform định chạy)')
+try:
+    sys.path.insert(0, ROOT)
+    from platform_crawlers import sessions as _sessions
+    _need = _sessions.login_needed()
+except Exception:
+    _need = {}
 for platform, need in (('x', 'bắt buộc'), ('facebook', 'bắt buộc'),
                        ('reddit', 'nên có'), ('dailymotion', 'dự phòng')):
     path = os.path.join(ROOT, 'cookies', f'{platform}_cookies.json')
-    report('ok' if os.path.exists(path) else 'warn', f'{platform} ({need})',
-           '' if os.path.exists(path) else 'chưa có cookie',
-           f'python scripts/import_browser_cookies.py {platform}')
+    if platform in _need:
+        report('warn', f'{platform} ({need})', f'CẦN ĐĂNG NHẬP LẠI từ {_need[platform]["since"]}',
+               f'đăng nhập {platform} trong Chrome — lượt crawl sau tự lấy cookie '
+               f'(hoặc chạy scripts/check_sessions.py {platform})')
+    else:
+        report('ok' if os.path.exists(path) else 'warn', f'{platform} ({need})',
+               '' if os.path.exists(path) else 'chưa có cookie',
+               f'đăng nhập {platform} trong Chrome rồi chạy '
+               f'python scripts/import_browser_cookies.py {platform}')
 
 # ── Parse DAG ────────────────────────────────────────────────────────────────
 if '--no-dags' not in sys.argv:

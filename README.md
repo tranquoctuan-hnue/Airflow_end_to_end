@@ -208,10 +208,45 @@ bash scripts/setup.sh            # thêm --rtsp nếu chạy pipeline camera, --
 | **Nơi lưu video** (bắt buộc) | Sửa `CRAWL_VIDEO_OUTPUT_DIR` trong `.env`. Giá trị mặc định là NAS của máy gốc, máy khác sẽ không có |
 | **Model VideoMAE** | Chép vào `models/`, xem [models/README.md](models/README.md). Không có model thì đặt `SOCIAL_USE_VIDEOMAE=false` |
 | **Gemini API key** | Điền vào `config/gemini_keys.json`. Không có key thì crawler dùng từ khóa tiếng Anh tĩnh |
-| **Cookie đăng nhập** | Đăng nhập platform trong Chrome thường, rồi chạy `airflow_venv/bin/python scripts/import_browser_cookies.py x`. **X và Facebook bắt buộc có cookie**; Reddit nên có |
-| **Reddit OAuth** (nên có) | `REDDIT_CLIENT_ID` và các biến liên quan trong `.env`, xem `.claude/skills/reddit-dag` |
+| **Đăng nhập các platform** | Đăng nhập X, Facebook, Reddit, Dailymotion **trong Chrome thường**, rồi chạy `airflow_venv/bin/python scripts/import_browser_cookies.py`. **X và Facebook bắt buộc**, Reddit nên có. Xem mục "Phiên đăng nhập" bên dưới |
 | **Camera RTSP** (chỉ pipeline camera) | Danh sách URL để trong `rtsp/*.txt` dạng `rtsp://{rtsp_cam_1}@host:554/...` (mẫu `rtsp/cameras.example.txt`). Tài khoản camera tạo ở **Admin → Connections**: id `rtsp_cam_1`, Login và Password. **Không ghi mật khẩu vào file** |
 | **Lịch sử dedup** (tùy chọn) | Chép `data/db/tracker.db` từ máy gốc sang, để máy mới không tải lại hàng chục nghìn URL đã xử lý |
+
+#### Phiên đăng nhập
+
+Mọi nền tảng đều đăng nhập **bằng Chrome thật** của anh/chị. Crawler không bao giờ tự điền
+mật khẩu. Đầu mỗi lượt crawl, `platform_crawlers/sessions.py` làm các bước sau:
+
+1. Mở trang thật bằng cookie của crawler để kiểm tra phiên. Không tin hạn ghi trong cookie,
+   vì cookie X có thể ghi hạn tới 2027 mà phiên đã chết.
+2. **Phiên chết thì tự lấy lại cookie từ Chrome.** Chrome được dùng hằng ngày nên phiên
+   trong đó thường vẫn còn, và bước này không cần ai làm gì. Hệ thống quét mọi profile và
+   lấy từ profile nào có phiên còn sống. Đo 2026-09-29: mỗi nền tảng mất 1–6 giây.
+3. **Chrome cũng đã đăng xuất thì báo anh/chị,** qua thông báo trên màn hình và Telegram
+   nếu đã đặt `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` trong `.env`. Mỗi nền tảng báo tối đa
+   một lần mỗi 12 giờ.
+   - Trong lúc chờ, X và Facebook được **bỏ qua ở lượt đó**, vòng xoay vẫn chạy các nền
+     tảng khác.
+   - Reddit và Dailymotion vẫn crawl tiếp vì không bắt buộc đăng nhập.
+   - **Anh/chị chỉ cần đăng nhập lại trong Chrome.** Lượt crawl sau tự lấy cookie, không
+     cần chạy lệnh nào.
+
+```bash
+airflow_venv/bin/python scripts/check_sessions.py              # kiểm tra, chết thì lấy lại từ Chrome
+airflow_venv/bin/python scripts/check_sessions.py --check      # chỉ kiểm tra
+airflow_venv/bin/python scripts/check_sessions.py --notify-test   # thử kênh thông báo
+airflow_venv/bin/python scripts/import_browser_cookies.py --list  # profile Chrome nào đăng nhập gì
+```
+
+- **Chrome phải chạy trong phiên desktop của anh/chị, cùng người dùng Linux với Airflow.**
+  Cookie Chrome được giải mã bằng khóa trong GNOME Keyring.
+- `doctor.py` liệt kê các nền tảng đang chờ đăng nhập lại.
+- **Vì sao không tự đăng nhập bằng mật khẩu?** Đã thử ngày 2026-09-29:
+  - Reddit chặn mọi trình duyệt tự động ở trang đăng nhập;
+  - X và Facebook hay đòi mã xác nhận hoặc xác minh thiết bị mới;
+  - Google chặn đăng nhập tự động.
+
+  Chrome thật không bị những chặn này.
 
 ⚠ **Không cho hai máy crawl cùng lúc với hai DB khác nhau.** Mỗi máy chỉ biết lịch sử
 của riêng mình, nên sẽ tải trùng video của nhau.

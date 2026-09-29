@@ -89,6 +89,7 @@ cd "$PROJECT_DIR"
 [ -f config/gemini_keys.json ] || {
   cp config/gemini_keys.example.json config/gemini_keys.json
   echo "✓ Tạo config/gemini_keys.json — điền Gemini API key"; }
+chmod 600 config/gemini_keys.json 2>/dev/null || true
 mkdir -p data/db config cookies state reports
 
 # ── 7. Khởi tạo DB metadata Airflow (tự sinh airflow.cfg) + pool GPU ─────────
@@ -110,6 +111,8 @@ Xong phần cài đặt. Còn lại (xem README.md → "Cài đặt trên máy m
        nhanh hơn trình duyệt; tạo app loại "script" tại https://www.reddit.com/prefs/apps
   2. Chép model vào models/ (models/README.md)
   3. Điền Gemini API key vào config/gemini_keys.json (không có → dùng từ khóa tĩnh)
-  4. Nhập cookie các platform cần đăng nhập: airflow_venv/bin/python scripts/import_browser_cookies.py x
+  4. Mở Chrome, đăng nhập X / Facebook / Reddit / Dailymotion như bình thường, rồi chạy:
+     airflow_venv/bin/python scripts/import_browser_cookies.py
+     (sau đó crawler tự lấy lại cookie từ Chrome mỗi khi phiên chết)
   5. Chạy: ./start_airflow.sh   → mở http://localhost:8080
 EOF
