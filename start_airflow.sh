@@ -12,10 +12,13 @@ if [ ! -x "$VENV_DIR/bin/airflow" ]; then
   exit 1
 fi
 
-# Dừng Airflow CỦA DỰ ÁN NÀY nếu đang chạy (chỉ tiến trình dùng venv của dự án,
-# không đụng Airflow/ứng dụng khác trên máy).
-pkill -f "$VENV_DIR/bin/airflow" 2>/dev/null || true
-sleep 2
+# Dừng Airflow CỦA DỰ ÁN NÀY nếu đang chạy (không đụng Airflow/ứng dụng khác trên máy).
+# KHÔNG dùng pkill theo đường dẫn venv — sót tiến trình tự đổi tên, xem stop_airflow.sh.
+"$PROJECT_DIR/stop_airflow.sh"
+
+# Mọi tiến trình Airflow nhận cwd = thư mục dự án: stop_airflow.sh dựa vào đó để nhận ra
+# tiến trình đã tự đổi tên, dù start_airflow.sh được gọi từ thư mục nào.
+cd "$PROJECT_DIR"
 
 # AIRFLOW_HOME = thư mục dự án: airflow.cfg, airflow.db, logs/ nằm ở đây
 # (airflow.cfg / airflow.db tự sinh lần đầu, không đưa lên git).
