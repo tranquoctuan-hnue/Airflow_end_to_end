@@ -240,6 +240,7 @@ class VideoMAEEventFilter:
          'top_windows', 'n_windows', ...}
         {'is_event': None, 'error': ...}  — không đọc được video / lỗi GPU
         """
+        self._last_video = None          # không để sót thông số của video trước
         try:
             windows = self._score_windows(path)
         except Exception as e:
@@ -248,8 +249,12 @@ class VideoMAEEventFilter:
         if not windows:
             return {'is_event': None, 'error': 'video không có frame nào'}
 
-        ranked = sorted(windows, key=lambda w: -w['prob'])
-        events = [w for w in windows if w['prob'] >= self.threshold]
+        meta = getattr(self, '_last_video', None) or {}
+        # 'scores' (điểm đủ các lớp) chỉ cần cho file annotation, không lưu vào DB:
+        # video 12 phút = 144 đoạn, ghi hết vào filter_detail thì DB phình vô ích.
+        slim = [{k: v for k, v in w.items() if k != 'scores'} for w in windows]
+        ranked = sorted(slim, key=lambda w: -w['prob'])
+        events = [w for w in slim if w['prob'] >= self.threshold]
         return {
             'model':         self.name,
             'is_event':      bool(events),
@@ -258,6 +263,9 @@ class VideoMAEEventFilter:
             'best':          ranked[0],
             'event_windows': events[:20],
             'top_windows':   ranked[:5],
+            # Pipeline lấy 2 khóa này ra (pop) để ghi annotation, KHÔNG vào DB
+            'windows':       windows,
+            'video':         meta,
         }
 
     # ── Nội bộ ─────────────────────────────────────────────────────────
@@ -315,9 +323,12 @@ class VideoMAEEventFilter:
         probs_ev = probs.copy()
         probs_ev[self.normal_idx] = -1.0                 # chỉ xét nhãn khác Normal
         k = int(probs_ev.argmax())
+        top = np.argsort(-probs)[:4]                     # 4 lớp cao nhất, kể cả Normal
         return {'start_s': round(ws / fps, 1), 'end_s': round(we / fps, 1),
+                'start_frame': int(ws), 'end_frame': int(we),
                 'label': self.labels[k], 'prob': round(float(probs[k]), 3),
-                'normal_prob': round(float(probs[self.normal_idx]), 3)}
+                'normal_prob': round(float(probs[self.normal_idx]), 3),
+                'scores': [(self.labels[int(i)], round(float(probs[i]), 4)) for i in top]}
 
     def _score_windows(self, path: str) -> list[dict]:
         if os.environ.get('VIDEOMAE_DECODER', 'ffmpeg').strip().lower() != 'decord':
@@ -332,6 +343,8 @@ class VideoMAEEventFilter:
 
         n = len(vr)
         fps = float(vr.get_avg_fps() or 25.0)
+        h0, w0 = vr[0].shape[:2]
+        self._last_video = {'fps': fps, 'width': int(w0), 'height': int(h0), 'n_frames': n}
         win = max(1, int(round(self.window_s * fps)))
         out = []
         for ws in range(0, n, win):
@@ -396,4 +409,5 @@ class VideoMAEEventFilter:
         finally:
             proc.stdout.close()
             proc.wait()
+        self._last_video = {'fps': fps, 'width': W, 'height': H, 'n_frames': ws + len(buf)}
         return out

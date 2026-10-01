@@ -349,7 +349,8 @@ def collect_disk() -> list[tuple[str, int, int]]:
         count = total = 0
         for root, _dirs, files in os.walk(path):
             for f in files:
-                if f.startswith('.'):
+                # Chỉ đếm video: cạnh mỗi video còn <video>.json annotation (từ 2026-10-01)
+                if f.startswith('.') or f.lower().endswith(('.json', '.jpg', '.png')):
                     continue
                 try:
                     total += os.path.getsize(os.path.join(root, f))

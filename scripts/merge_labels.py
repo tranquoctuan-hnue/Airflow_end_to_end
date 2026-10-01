@@ -52,6 +52,8 @@ def _fix_sidecar(video_path: str, new: str, apply: bool):
     if apply:
         with open(sidecar, encoding='utf-8') as f:
             info = json.load(f)
+        if info.get('type') == 'video_classification':
+            return      # file annotation (crawler_core/annotation.py): không có nhãn crawl
         info['category'] = new
         with open(sidecar, 'w', encoding='utf-8') as f:
             json.dump(info, f, ensure_ascii=False, indent=2)

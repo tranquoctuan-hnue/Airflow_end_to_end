@@ -497,6 +497,9 @@ class VideoPipeline:
                 return self._reject(ctx, NOT_CCTV, checks, staged, frame)
         self.stats.bump('cctv')
 
+        # Điểm từng đoạn VideoMAE cho file annotation — giữ ngoài `checks` (vào DB)
+        ann_src = None
+
         # ── VideoMAE: có đoạn nào mang nhãn sự việc (khác Normal)? ──── chạy CUỐI
         # Nhãn crawl "Normal" (lớp âm tính) thì bỏ qua: bộ lọc này theo định nghĩa sẽ
         # loại MỌI video bình thường.
@@ -504,6 +507,8 @@ class VideoPipeline:
             checks['videomae'] = {'skipped': 'nhãn Normal — không áp dụng bộ lọc sự việc'}
         elif self.event_filter is not None:
             ev = self.event_filter.assess_video(staged)
+            ann_src = {'windows': ev.pop('windows', None), 'video': ev.pop('video', None),
+                       'threshold': ev.get('threshold')}
             if ev.get('best'):
                 # Chỉ để tham khảo, KHÔNG dùng để lọc: có đoạn nào đạt ngưỡng mang đúng
                 # nhãn của từ khóa tìm ra video không (Armed_suspect ~ ArmedSuspect, Smok ~ Smoke)
@@ -522,7 +527,8 @@ class VideoPipeline:
                 self.stats.bump(ERROR)
                 return ERROR
             if not ev['is_event']:
-                return self._reject(ctx, NO_EVENT, checks, staged)
+                return self._reject(ctx, NO_EVENT, checks, staged,
+                                    annotation=(duration, ann_src))
 
         # ── Nhận → chuyển vào dataset + lưu cả 4 tầng ────────────────
         file_path = move_file(staged, os.path.join(self.output_base, category))
@@ -530,6 +536,7 @@ class VideoPipeline:
             self._finish(url, FAILED, checks=checks)
             self.stats.bump(FAILED)
             return FAILED
+        self._write_annotation(file_path, duration, ann_src)
 
         p, otype, oid = canonical if canonical else (ctx['platform'], None, None)
         self.db.save_video_fingerprint(
@@ -608,7 +615,8 @@ class VideoPipeline:
         return action_for(outcome, self.reject_action)
 
     def _reject(self, ctx: dict, outcome: str, checks: dict,
-                staged: str | None = None, frame: str | None = None) -> str:
+                staged: str | None = None, frame: str | None = None,
+                annotation: tuple | None = None) -> str:
         """
         Ghi video bị loại: DB (luôn luôn) + file (move sang rejected_base hoặc
         để release_staged xóa, tùy reject_action).
@@ -621,7 +629,12 @@ class VideoPipeline:
             if kept:
                 if frame:
                     move_file(frame, dest_dir)
-                self._write_sidecar(kept, ctx, outcome, checks)
+                if annotation is not None:
+                    # no_event: file annotation giống video được nhận, để mở trong công
+                    # cụ gán nhãn mà sửa lại nếu VideoMAE loại nhầm
+                    self._write_annotation(kept, *annotation)
+                else:
+                    self._write_sidecar(kept, ctx, outcome, checks)
 
         detail = (checks.get('videomae') if outcome == NO_EVENT else None) \
             or checks.get(outcome) or checks.get('classifier') or {}
@@ -651,6 +664,19 @@ class VideoPipeline:
                     f"cctv={v.get('cctv_seconds')}s/{v.get('duration')}s | "
                     f"đoạn cao nhất: {top.get('reasons', '—')}")
         return f"Qwen: {v.get('reason', '—')}"
+
+    def _write_annotation(self, video_path: str, duration: float, src: dict | None):
+        """<video>.json format video_classification (crawler_core/annotation.py)."""
+        try:
+            from crawler_core import annotation
+            ef = self.event_filter
+            data = annotation.build(
+                video_path, duration, src,
+                model_labels=getattr(ef, 'labels', None),
+                model='VideoMAE')
+            annotation.write(video_path, data)
+        except Exception as e:      # annotation hỏng không được làm mất video đã nhận
+            logger.warning(f"[Pipeline] Không tạo được annotation {video_path}: {e}")
 
     @staticmethod
     def _write_sidecar(video_path: str, ctx: dict, outcome: str, checks: dict):
