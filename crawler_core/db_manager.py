@@ -260,7 +260,7 @@ class DBManager:
         return row[0] if row else None
 
     def find_by_thumbnail(self, thumbnail_hash: str, duration: float) -> str | None:
-        """L3 — phash frame giữa, pre-filter duration ±5%. Không filter platform."""
+        """L3 — phash frame giữa, pre-filter duration ±DURATION_TOLERANCE. Không filter platform."""
         from crawler_core.dedup import (
             phash_distance, THUMBNAIL_THRESHOLD, DURATION_TOLERANCE,
         )
@@ -278,7 +278,7 @@ class DBManager:
         return None
 
     def find_by_fingerprint(self, fingerprint: str, duration: float) -> str | None:
-        """L4 — avg phash distance 5 frame, pre-filter duration ±5%. Không filter platform."""
+        """L4 — avg phash distance 5 frame, pre-filter duration ±DURATION_TOLERANCE. Không filter platform."""
         from crawler_core.dedup import (
             fingerprint_avg_distance, FINGERPRINT_THRESHOLD, DURATION_TOLERANCE,
         )
@@ -293,6 +293,29 @@ class DBManager:
         for fp, url in rows:
             if fingerprint_avg_distance(fingerprint, fp) < FINGERPRINT_THRESHOLD:
                 return url
+        return None
+
+    def find_by_cross_fingerprint(self, fingerprint: str,
+                                  informative: list[bool]) -> tuple[str, int] | None:
+        """
+        L4 chéo vị trí — so mọi cặp frame, KHÔNG lọc theo độ dài, không filter
+        platform. Trả (url gốc, số frame khớp) hoặc None. Lý do: dedup.CROSS_MAX_DIST.
+        """
+        from crawler_core.dedup import (
+            CROSS_MIN_FRAMES, cross_frame_matches, parse_fingerprint,
+        )
+        new = parse_fingerprint(fingerprint)
+        if len(new) != len(informative) or sum(informative) < CROSS_MIN_FRAMES:
+            return None
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                'SELECT fingerprint, url FROM video_fingerprints '
+                'WHERE fingerprint IS NOT NULL'
+            ).fetchall()
+        for fp, url in rows:
+            n = cross_frame_matches(new, informative, parse_fingerprint(fp))
+            if n >= CROSS_MIN_FRAMES:
+                return url, n
         return None
 
     def save_video_fingerprint(

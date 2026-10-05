@@ -14,6 +14,8 @@ Video deduplication — 4 tầng lọc trùng lặp, dùng chung cho MỌI platf
   L4 — Fingerprint  : phash 5 frame tại 10/30/50/70/90% duration.
                       Chính xác nhất — chịu được watermark, crop nhẹ,
                       re-encode.  Chi phí ~1.5s.
+                      Thêm phép so CHÉO vị trí 5×5, không lọc độ dài → bắt
+                      bản bị cắt ngắn / lồng vào bản tin (xem CROSS_MAX_DIST).
 
 QUAN TRỌNG — dedup CHÉO platform:
   L1 chỉ so trong cùng platform (video:123 của FB ≠ video:123 của TikTok).
@@ -375,12 +377,21 @@ def compute_fingerprint(file_path: str, duration: float = 0.0) -> str | None:
     L4: phash 5 frame → 'h1:h2:h3:h4:h5'.
     Cần ≥3 frame thành công; ít hơn trả None để tránh false positive.
     """
+    return compute_fingerprint_detail(file_path, duration)[0]
+
+
+def compute_fingerprint_detail(file_path: str,
+                               duration: float = 0.0) -> tuple[str | None, list[bool]]:
+    """
+    Như compute_fingerprint() nhưng trả kèm cờ "frame có đủ chi tiết" cho từng
+    hash (cùng thứ tự) — L4 chéo vị trí bỏ qua frame đen/tối, xem LOW_INFO_EDGE.
+    """
     if duration <= 0:
         duration = get_video_duration(file_path)
     if duration < 0.5:
-        return None
+        return None, []
 
-    hashes = []
+    hashes, informative = [], []
     tmp_dir = tempfile.mkdtemp(prefix='dedup_')
     try:
         for pos in FRAME_POSITIONS:
@@ -389,10 +400,90 @@ def compute_fingerprint(file_path: str, duration: float = 0.0) -> str | None:
                 h = _phash_str(out)
                 if h is not None:
                     hashes.append(h)
+                    informative.append(_frame_informative(out))
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    return ':'.join(hashes) if len(hashes) >= 3 else None
+    if len(hashes) < 3:
+        return None, []
+    return ':'.join(hashes), informative
+
+
+# ── L4 chéo vị trí: bắt bản bị CẮT NGẮN / lồng vào bản tin ─────────────────────
+#
+# L3/L4 ở trên so frame tại CÙNG vị trí phần trăm và chỉ so clip lệch ≤ ±20% độ
+# dài. Bản tin cắt một đoạn từ giữa clip CCTV gốc thì trượt cả hai điều kiện.
+#
+# Sự cố 2026-09-30 (máy 168, Facebook, nhãn ArmedFight): cùng một vụ ẩu đả
+# "CAM 5" trong phòng họp được tải 2 lần — 1009565843288873 (bản tin terra có
+# logo + phụ đề, 47.3s, 640x360) và 1109374126579347 (CCTV gốc, 102.1s, 426x240):
+#     độ dài lệch 54%  → ngoài cửa sổ ±20%, L3/L4 KHÔNG được chạy
+#     nếu có chạy:  L3 = 10 ≥ 8, L4 trung bình = 10.0, không < 10 → vẫn trượt
+#     so chéo 5×5:  có cặp frame cách 2 và 4 — cùng cảnh, khác vị trí %
+# Vì vậy tầng này so MỌI cặp frame (5×5), không lọc theo độ dài: trùng khi có
+# ≥ CROSS_MIN_FRAMES frame khác nhau MỖI BÊN khớp nhau (khoảng cách ≤
+# CROSS_MAX_DIST). Đếm frame riêng biệt mỗi bên, không đếm cặp — 1 frame tĩnh
+# lặp lại không tự đủ điều kiện.
+#
+# Đo trên 9.333 fingerprint máy 168 (2026-10-05): ngưỡng ≤6 + ≥2 frame mỗi bên
+# bắt được cặp trên (khớp đúng 2 frame mỗi bên); ngưỡng ≤4 thì trượt (chỉ 1 frame
+# phía bản gốc khớp). Quét cả bảng bằng int.bit_count ~0.1s/video.
+CROSS_MAX_DIST = int(os.environ.get('CRAWL_DEDUP_CROSS_DIST') or 6)
+CROSS_MIN_FRAMES = int(os.environ.get('CRAWL_DEDUP_CROSS_MIN_FRAMES') or 2)
+
+# Frame "nghèo chi tiết" (đen, fade, trời đêm) cho phash gần như giống nhau dù
+# là 2 video khác hẳn → không được tính là frame khớp ở L4 chéo vị trí.
+#
+# Dương tính giả thật khi thử ngưỡng trên DB 168 (2026-10-05): clip UFO trời đêm
+# (382912431296961) "khớp" với vụ cướp cửa hàng (twitter_2051091888875433984) chỉ
+# vì frame tối của bên này gần frame đen ở cuối bên kia (khoảng cách 6). Đo độ
+# gắt cạnh = trung bình |chênh lệch xám| giữa 2 pixel kề nhau trên ảnh 64×64:
+#     frame đen cuối clip twitter  0.0       trời đêm UFO      3.2–4.5
+#     CCTV 2 bản ArmedFight       13.3–15.5   mẫu 400 frame dataset: trung vị 11.6
+# Ngưỡng 5 loại 8% frame của dataset khỏi phép so CHÉO (chúng vẫn được L4 thường
+# so như cũ) — chỉ làm giảm khả năng bắt trùng, không bao giờ gây loại nhầm.
+LOW_INFO_EDGE = float(os.environ.get('CRAWL_DEDUP_LOW_INFO_EDGE') or 5.0)
+
+
+def _frame_informative(img_path: str) -> bool:
+    """Frame có đủ chi tiết để phash phân biệt được không (xem LOW_INFO_EDGE)."""
+    try:
+        import numpy as np
+        from PIL import Image
+        g = np.asarray(Image.open(img_path).convert('L').resize((64, 64)),
+                       dtype=np.float32)
+        return float(np.abs(np.diff(g, axis=1)).mean()) >= LOW_INFO_EDGE
+    except Exception:
+        return False
+
+
+def parse_fingerprint(fp: str) -> list[int]:
+    """'h1:h2:...' → list int (hash lỗi bị bỏ)."""
+    out = []
+    for h in (fp or '').split(':'):
+        try:
+            out.append(int(h, 16))
+        except ValueError:
+            pass
+    return out
+
+
+def cross_frame_matches(new_hashes: list[int], informative: list[bool],
+                        other_hashes: list[int]) -> int:
+    """
+    Số frame khớp nhau (khoảng cách ≤ CROSS_MAX_DIST) khi so MỌI cặp frame bất
+    kể vị trí — lấy min số frame riêng biệt của hai bên. Chỉ frame có đủ chi
+    tiết của video mới được tính.
+    """
+    hit_new, hit_other = set(), set()
+    for i, (a, ok) in enumerate(zip(new_hashes, informative)):
+        if not ok:
+            continue
+        for j, b in enumerate(other_hashes):
+            if (a ^ b).bit_count() <= CROSS_MAX_DIST:
+                hit_new.add(i)
+                hit_other.add(j)
+    return min(len(hit_new), len(hit_other))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

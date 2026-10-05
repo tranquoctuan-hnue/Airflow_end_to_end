@@ -17,6 +17,7 @@ Thứ tự xử lý — TẢI VỀ TRƯỚC, LỌC SAU (dừng ngay khi bị lo�
      ├─ L2  SHA-256 file hash                    │ bị loại → file sang
      ├─ L3  phash 1 frame (50%)                  │ REJECTED_BASE/<lý do>/<nhãn>/
      ├─ L4  phash 5 frame (10/30/50/70/90%)      │ + <file>.json ghi lý do
+     │       + so chéo 5×5 không lọc độ dài       │
      ├─ Phân loại CCTV trên TOÀN BỘ FILE         │ (hoặc xóa, xem REJECT_ACTION)
      ├─ VideoMAE: có đoạn 5s nhãn ≠ Normal ≥50%?  ┘ (crawler_core/videomae_filter.py)
      └─ ✓  chuyển file vào <OUTPUT_BASE>/<nhãn>/ + lưu fingerprint 4 tầng
@@ -470,11 +471,19 @@ class VideoPipeline:
                 return self._reject(ctx, DUP_L3, checks, staged)
 
         # ── L4: 5-frame fingerprint ──────────────────────────────────
-        fingerprint = dedup.compute_fingerprint(staged, duration)
+        fingerprint, informative = dedup.compute_fingerprint_detail(staged, duration)
         if fingerprint and self.dedup_content:
             orig = self.db.find_by_fingerprint(fingerprint, duration)
             if orig:
                 checks['dup_l4'] = {'fingerprint': fingerprint, 'original': orig}
+                return self._reject(ctx, DUP_L4, checks, staged)
+            # Chéo vị trí, không lọc độ dài: bắt bản cắt ngắn / bản tin lồng
+            # clip gốc (xem dedup.CROSS_MAX_DIST). Chung lý do dup_l4 để
+            # crawler_reject_action và thống kê không phải thêm khóa mới.
+            hit = self.db.find_by_cross_fingerprint(fingerprint, informative)
+            if hit:
+                checks['dup_l4'] = {'fingerprint': fingerprint, 'original': hit[0],
+                                    'mode': 'cross', 'matched_frames': hit[1]}
                 return self._reject(ctx, DUP_L4, checks, staged)
 
         # ── Phân loại CCTV (đắt nhất → chạy cuối) ────────────────────
