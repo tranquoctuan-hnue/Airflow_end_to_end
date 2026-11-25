@@ -33,71 +33,11 @@ command -v deno >/dev/null || echo "⚠  Không thấy deno — YouTube có th�
 # Activate virtual environment
 source "$VENV_DIR/bin/activate"
 
-# ── Cấu hình crawler tuần tự liên tục ──────────────────────────────────────
-# Trần thời gian MỖI LƯỢT của 1 platform. 5 DAG social_crawler_* dùng chung pool
-# 1 slot nên chúng xoay vòng; không có trần này thì YouTube (~5.6h/lượt) sẽ giữ
-# slot hàng giờ và 4 platform còn lại gần như không được chạy. Task tự dừng đúng
-# lịch GIỮA 2 BATCH rồi nhả slot, lượt sau dedup L0 bỏ qua URL đã xử lý nên
-# tiến độ vẫn tích lũy. Đổi số này để xoay nhanh hơn (30) hay sâu hơn (120).
-export CRAWL_TASK_TIME_BUDGET_MINUTES=60
-
-# Bật VLM. ⚠ Đặt =false sẽ ÂM THẦM chuyển các task crawler về default_pool
-# (xem build_platform_dag) → mất luôn cơ chế chỉ-1-platform-tại-1-thời-điểm.
-export SOCIAL_USE_CLASSIFIER=true
-
-# Chọn nhãn theo THIẾU HỤT: mỗi lượt tính lại thứ tự từ số video thật trong DB,
-# nhãn ít video nhất đi trước. Không có nó thì thứ tự nhãn cố định và các nhãn
-# cuối bảng không bao giờ tới lượt khi có trần thời gian.
-# Xem platform_crawlers/label_cursor.py; state ở state/label_cursor.json.
-export CRAWL_LABEL_ROTATION=true
-
-# Chốt an toàn cho cơ chế trên: nhãn ghé N lượt liên tiếp KHÔNG ra video nào thì
-# bị đẩy xuống cuối thứ tự trong một khoảng thời gian (gấp đôi mỗi lần thất bại
-# thêm). Không có nó, một nhãn thật sự không có nội dung sẽ luôn ở đáy bảng
-# "thiếu nhất" và chiếm slot VĨNH VIỄN, làm chết 10 nhãn còn lại.
-export CRAWL_LABEL_EMPTY_STREAK=3
-export CRAWL_LABEL_BACKOFF_HOURS=6
-
-# Nhãn đạt đủ số video này thì nhường ưu tiên cho nhãn còn thiếu (0 = tắt).
-# Bật khi đã có dataset tương đối đều và muốn chặn trần cứng mỗi nhãn.
-export CRAWL_LABEL_TARGET=0
-
-# Độ sâu cuộn trang. MAX_PER_TARGET là nút chính: vòng cuộn dừng ở
-# `len(found) >= limit` nên tăng MAX_SCROLLS một mình KHÔNG có tác dụng.
-# Quá hạn discovery không còn mất kết quả (trả về phần đã gom được).
-export CRAWL_MAX_PER_TARGET=100
-export CRAWL_MAX_SCROLLS=60
-export CRAWL_DISCOVERY_TIMEOUT=600
-
-# Video bị bộ lọc loại (9:16, trùng L2–L4, VLM không phải CCTV): mọi video đều được
-# TẢI VỀ TRƯỚC rồi mới lọc. move = chuyển sang thư mục riêng kèm <file>.json ghi lý
-# do để tự kiểm tra bộ lọc có loại đúng không; delete = xóa luôn khi đã tin bộ lọc.
-# Mặc định chỗ chứa: tuantq/video_rejected/<lý do>/<nhãn>/ (cạnh thư mục dataset),
-# đổi bằng CRAWL_REJECTED_DIR. Lý do loại luôn được ghi vào DB dù move hay delete.
-export CRAWL_REJECT_ACTION=move
-
-# Bộ phân loại CCTV chạy trên file đã tải:
-#   clip = crawler_core/cctv_detector.py — tách cảnh, CLIP + OCR timestamp + fps thực
-#   qwen = Qwen2.5-VL cũ trên 1 frame (để so sánh / quay lại)
-# Probe tự huấn luyện (python crawler_core/cctv_detector.py train ...) đặt tại
-# models/cctv_probe.joblib sẽ được dùng tự động, chính xác hơn zero-shot nhiều.
-export CRAWL_CCTV_CLASSIFIER=clip
-
-# chain = chạy lần lượt theo Variable crawler_rotation (youtube → dailymotion →
-#         reddit → youtube...), mỗi DAG xong tự trigger DAG kế.
-# pool  = cơ chế cũ: mọi DAG chạy theo lịch 10 phút, pool 1 slot chọn ai chạy.
-export CRAWL_ROTATION_MODE=chain
-
-# Bộ lọc cuối cùng: model VideoMAE tự fine-tune (ViT-L, 20 lớp). Video ĐẠT khi có ít nhất 1
-# đoạn 5s mang nhãn khác Normal với xác suất >= VIDEOMAE_THRESHOLD. Tắt theo platform:
-# filter_videomae trên form Trigger hoặc Variable crawler_filters {"x": {"videomae": false}}.
-# VIDEOMAE_AGGREGATE=max: đoạn đạt nếu BẤT KỲ clip ~2s nào trong đoạn đạt ngưỡng (bắt
-# được sự việc ngắn); =mean: trung bình 5×3 view như segment_infer.py (bỏ sót nhiều hơn).
-# Đường dẫn model/nhãn/repo: xem đầu crawler_core/videomae_filter.py.
-export SOCIAL_USE_VIDEOMAE=true
-export VIDEOMAE_THRESHOLD=0.5
-export VIDEOMAE_AGGREGATE=max
-export VIDEOMAE_MODEL_DIR="$PROJECT_DIR/models/Video_understanding/vitl_224x224_240926"
+# ── Cấu hình crawler / model / ngưỡng: config/dags.yaml ─────────────────────
+# Trước 2026-11-25 các giá trị CRAWL_* / VIDEOMAE_* / SOCIAL_USE_* được export ở đây.
+# Đã chuyển hết sang config/dags.yaml (cùng giá trị, kèm lý do): export ở đây là biến
+# môi trường, mà biến môi trường thắng YAML — để lại thì sửa YAML sẽ không có tác dụng.
+# Muốn ghi đè riêng 1 máy: config/dags.local.yaml (hoặc .env như cũ).
 
 # ── Tài khoản web (SimpleAuthManager) — dạng tên:vai_trò, cách nhau bằng dấu phẩy ──
 # Mật khẩu tự sinh lần đầu vào simple_auth_manager_passwords.json.generated (không vào git).
@@ -126,18 +66,32 @@ fi
 # Video được lưu lên NAS pvn_share qua GVFS/SMB. GVFS mount theo PHIÊN ĐĂNG NHẬP
 # desktop nên đăng xuất/khởi động lại là mất — lúc đó mọi DAG crawler sẽ chết ở
 # bước tạo thư mục lưu. Cảnh báo ngay từ đầu thay vì để phát hiện sau vài giờ.
-VIDEO_DIR="${CRAWL_VIDEO_OUTPUT_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gvfs/smb-share:server=pvn_nas.local,share=pvn_share/tuantq/video}"
+# Nơi lưu video + model VideoMAE lấy theo config/dags.yaml (.env vẫn thắng) — giống
+# hệt giá trị task crawler sẽ dùng. YAML lỗi thì in lỗi ra và dùng mặc định.
+eval "$(cd "$PROJECT_DIR" && python - <<'PY'
+import os, shlex
+try:
+    from dags.dag_config import apply_dag_config
+    apply_dag_config('social_crawler_youtube')
+except Exception as e:
+    print('echo ' + shlex.quote(f'⚠  config/dags.yaml: {e}'))
+for k in ('CRAWL_VIDEO_OUTPUT_DIR', 'VIDEOMAE_MODEL_DIR'):
+    print(f'{k}_CFG=' + shlex.quote(os.environ.get(k, '')))
+PY
+)"
+VIDEO_DIR="${CRAWL_VIDEO_OUTPUT_DIR_CFG:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gvfs/smb-share:server=pvn_nas.local,share=pvn_share/tuantq/video}"
+VMAE_DIR="${VIDEOMAE_MODEL_DIR_CFG:-$PROJECT_DIR/models/Video_understanding/vitl_224x224_240926}"
 if [ -d "$VIDEO_DIR" ]; then
   echo "NAS OK — video sẽ lưu vào: $VIDEO_DIR"
 else
   echo "⚠  CHƯA MOUNT NAS: $VIDEO_DIR"
   echo "   Mount: gio mount smb://pvn_nas.local/pvn_share"
   echo "   (hoặc Files → Other Locations → smb://pvn_nas.local/pvn_share)"
-  echo "   Hoặc lưu tạm vào ổ nội bộ:"
-  echo "     export CRAWL_VIDEO_OUTPUT_DIR=$PROJECT_DIR/data/videos"
+  echo "   Hoặc lưu tạm vào ổ nội bộ — trong config/dags.local.yaml:"
+  echo "     social_crawler: {video_output_dir: data/videos}"
   echo "   Các DAG crawler sẽ LỖI cho tới khi xử lý xong."
 fi
-[ -d "$VIDEOMAE_MODEL_DIR" ] || echo "⚠  Không thấy model VideoMAE: $VIDEOMAE_MODEL_DIR (xem models/README.md)"
+[ -d "$VMAE_DIR" ] || echo "⚠  Không thấy model VideoMAE: $VMAE_DIR (xem models/README.md)"
 
 # Initialize database schema (migrate, KHÔNG reset)
 # ⚠ Dòng này TRƯỚC ĐÂY là `airflow db reset --yes` — nó xóa trắng DB metadata

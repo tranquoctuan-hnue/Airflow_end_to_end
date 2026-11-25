@@ -27,6 +27,11 @@ from datetime import timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# config/dags.yaml → biến môi trường của DAG này. PHẢI trước khi import
+# social_crawler_common: nó và platform_crawlers/config.py đọc biến môi trường lúc import.
+from dags.dag_config import apply_dag_config  # noqa: E402
+apply_dag_config('social_crawler_reddit')
+
 # Airflow chỉ quét file có chứa từ "airflow" (DAG_DISCOVERY_SAFE_MODE) —
 # không có dòng này DagBag sẽ ÂM THẦM bỏ qua cả file, không báo lỗi.
 import airflow  # noqa: F401

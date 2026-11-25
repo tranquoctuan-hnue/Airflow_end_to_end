@@ -23,7 +23,8 @@ Pipeline:
 
 Schedule: 18:00 giờ Hồ Chí Minh, mỗi ngày. Mỗi lần chạy kéo dài 12 tiếng liên tục
 (tới ~6h sáng hôm sau) rồi tự dừng, hôm sau 18h lại chạy tiếp.
-Từ khóa search: youtube_live/config.py (SEARCH_KEYWORDS).
+Cấu hình (lịch, số giờ chạy, từ khóa, nơi lưu): config/dags.yaml, phần
+camera_source_youtube_live. Mặc định: youtube_live/config.py.
 Tắt bước xác minh bằng model (chỉ lọc theo tiêu đề, không cần GPU):
   env YOUTUBE_CCTV_USE_CLASSIFIER=false
 Kết quả: data/videos/youtube_cctv/live_streams.txt + snapshots/
@@ -42,11 +43,16 @@ from airflow.operators.python import PythonOperator
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
+# config/dags.yaml → biến môi trường của DAG này. PHẢI trước mọi import code dự án:
+# các module đọc biến môi trường ngay lúc import.
+from dags.dag_config import apply_dag_config, log_applied, schedule_from_env  # noqa: E402
+apply_dag_config('camera_source_youtube_live')
+
 logger = logging.getLogger(__name__)
 
 HCM_TZ = pendulum.timezone('Asia/Ho_Chi_Minh')
 
-RUN_DURATION = timedelta(hours=12)
+RUN_DURATION = timedelta(hours=float(os.environ.get('YOUTUBE_CCTV_RUN_HOURS') or 12))
 
 # DAG này cũng nạp Qwen2.5-VL lên GPU (CCTVClassifier trong
 # crawler_core/qwen_classifier.py) nên PHẢI nằm cùng pool 1 slot với 5 DAG social_crawler_*,
@@ -74,6 +80,7 @@ default_args = {
 # ---------------------------------------------------------------------------
 
 def task_find_and_snapshot_streams(**context):
+    log_applied()
     from youtube_live.live_stream_finder import find_live_streams
     from youtube_live.snapshot_store import SnapshotStore
 
@@ -139,7 +146,7 @@ with DAG(
     description='Tìm luồng CCTV đang live trên YouTube (18h–6h), chụp frame, xác minh Qwen2.5-VL → live_streams.txt',
     default_args=default_args,
     start_date=pendulum.datetime(2026, 7, 23, 0, 0, tz=HCM_TZ),
-    schedule='0 18 * * *',
+    schedule=schedule_from_env('YOUTUBE_CCTV_SCHEDULE', '0 18 * * *'),
     catchup=False,
     max_active_runs=1,
     tags=['camera_source', 'youtube', 'live', 'qwen'],

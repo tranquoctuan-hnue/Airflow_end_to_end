@@ -60,7 +60,8 @@ Video bị loại ở các bước sau download được chuyển sang thư mụ
 .json ghi lý do (CRAWL_REJECT_ACTION=move, mặc định) hoặc xóa luôn (=delete).
 Lý do loại luôn được ghi vào video_urls.reject_reason / filter_detail.
 
-Cấu hình: platform_crawlers/config.py (mọi thứ override được bằng env var).
+Cấu hình: config/dags.yaml (phần social_crawler + social_crawler_<platform>), mặc định ở
+platform_crawlers/config.py; mọi thứ vẫn override được bằng env var.
 Tắt bước VLM (không cần GPU, không cần Pool): SOCIAL_USE_CLASSIFIER=false
 """
 
@@ -329,6 +330,8 @@ def task_crawl_platform(platform: str, **context):
         đang chạy) — dùng cho smoke-test xem pipeline có chạy ổn không mà
         không cần đợi hết cả vòng discovery. 0/không đặt = không giới hạn.
     """
+    from dags.dag_config import log_applied
+    log_applied()
     # ── Chế độ chain: lượt tự động theo lịch chỉ để có Backfill → bỏ qua ─────
     dag_run  = context.get('dag_run')
     run_type = getattr(getattr(dag_run, 'run_type', None), 'value',

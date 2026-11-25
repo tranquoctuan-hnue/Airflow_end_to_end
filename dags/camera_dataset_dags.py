@@ -11,6 +11,9 @@ sự việc của social_crawler_*).
                                     chỉ lưu crop có mũ thường, hoặc ≥2 lớp cùng lúc
                                     (mũ BH / mũ trùm / không mũ / điện thoại) → data/helmet/
 
+Cấu hình (model, ngưỡng, thư mục lưu, file camera, lịch): config/dags.yaml, các phần
+camera_dataset và camera_dataset_*. Mặc định nằm ở src/modules/config.py.
+
 Danh sách camera: RTSP_FILE trong src/modules/config.py (rtsp/cam_vh_lp.txt,
 cam_person.txt, cam_vh_helmet.txt — không có trong git vì chứa địa chỉ camera). Mỗi dòng
 1 URL RTSP dạng rtsp://{rtsp_cam_N}@host/... hoặc link YouTube live (video_capture.py
@@ -31,6 +34,13 @@ from pathlib import Path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
+# config/dags.yaml → biến môi trường của DAG này. PHẢI trước mọi import code dự án:
+# các module đọc biến môi trường ngay lúc import (src/modules/config.py). 3 DAG chung
+# 1 file nên áp cả 3 phần cùng lúc — tên biến của 3 phần không trùng nhau.
+from dags.dag_config import apply_dag_config, log_applied, schedule_from_env  # noqa: E402
+apply_dag_config('camera_dataset_vehicle_anpr', 'camera_dataset_person_attributes',
+                 'camera_dataset_helmet')
+
 
 # Setup CUDA/GPU environment for PaddleOCR
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
@@ -45,6 +55,10 @@ from src.modules.config import RUN_MODE, RTSP_FILE
 
 # from sam3.model_builder import build_sam3_image_model
 # from sam3.model.sam3_image_processor import Sam3Processor
+
+# Số giờ DAG helmet chạy mỗi lượt (config/dags.yaml: camera_dataset_helmet.run_hours).
+# Timeout task = số giờ + 2 (mặc định 10 + 2 = 12h như trước).
+HELMET_RUN_HOURS = float(os.environ.get('CAMERA_HELMET_RUN_HOURS') or 10)
 
 # Default DAG arguments
 default_args = {
@@ -68,13 +82,14 @@ with DAG(
     dag_id='camera_dataset_vehicle_anpr',
     default_args=default_args,
     description='Camera RTSP/YouTube live → YOLO xe → cắt → PaddleOCR biển số → data/vehicle, data/anpr',
-    schedule=None,  # Manual trigger
+    schedule=schedule_from_env('CAMERA_VEHICLE_ANPR_SCHEDULE', None),  # mặc định chạy tay
     catchup=False,
     tags=['camera_dataset', 'rtsp', 'anpr', 'yolo', 'paddleocr'],
 ) as dag_vehicle_anpr:
 
     def vehicle_anpr():
         """Process all URLs with 4-step pipeline."""
+        log_applied()
         rtsp_file_path = RTSP_FILE.get('vehicle_lp') if isinstance(RTSP_FILE, dict) else RTSP_FILE
         urls = _read_rtsp_urls(rtsp_file_path)
 
@@ -100,13 +115,14 @@ with DAG(
     dag_id='camera_dataset_person_attributes',
     default_args=default_args,
     description='Camera RTSP/YouTube live → YOLO người → cắt → PaddleClas thuộc tính → data/person, data/attributes',
-    schedule=None,  # Manual trigger
+    schedule=schedule_from_env('CAMERA_PERSON_SCHEDULE', None),  # mặc định chạy tay
     catchup=False,
     tags=['camera_dataset', 'rtsp', 'person', 'yolo', 'paddleclas'],
 ) as dag_person_attributes:
 
     def person_attributes():
         """Process all URLs with 4-step pipeline."""
+        log_applied()
         rtsp_file_path = RTSP_FILE.get('person') if isinstance(RTSP_FILE, dict) else RTSP_FILE
         urls = _read_rtsp_urls(rtsp_file_path)
 
@@ -132,12 +148,13 @@ with DAG(
     dag_id='camera_dataset_helmet',
     default_args=default_args,
     description='Camera RTSP/YouTube live → YOLO xe → cắt → YOLO mũ bảo hiểm → data/helmet (7h–17h mỗi ngày)',
-    schedule = "0 0 * * *",  # 7h AM UTC+7 daily
+    schedule=schedule_from_env('CAMERA_HELMET_SCHEDULE', '0 0 * * *'),  # 7h AM UTC+7 daily
     catchup=False,
     tags=['camera_dataset', 'rtsp', 'helmet', 'yolo'],
 ) as dag_helmet_attributes:
 
     def helmet_attributes():
+        log_applied()
 
         # Try to read from vehicle_lp or vehicle RTSP file
         # rtsp_file_path = RTSP_FILE.get('helmet') if isinstance(RTSP_FILE, dict) else RTSP_FILE
@@ -172,7 +189,7 @@ with DAG(
         #     return
 
         start_time = time.time()
-        while time.time() - start_time < 10 * 3600:  # chạy 10 tiếng (7h–17h), timeout task 12h
+        while time.time() - start_time < HELMET_RUN_HOURS * 3600:  # mặc định 10 tiếng (7h–17h)
             rtsp_file_path = RTSP_FILE.get('helmet') if isinstance(RTSP_FILE, dict) else RTSP_FILE
             urls = _read_rtsp_urls(rtsp_file_path)
 
@@ -186,7 +203,7 @@ with DAG(
     task_helmet_detection = PythonOperator(
         task_id='capture_detect_helmet',
         python_callable=helmet_attributes,
-        execution_timeout=timedelta(hours=12)
+        execution_timeout=timedelta(hours=HELMET_RUN_HOURS + 2)
     )
 
 # Export DAG for Airflow to discover

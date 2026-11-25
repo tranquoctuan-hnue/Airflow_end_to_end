@@ -42,12 +42,10 @@ from airflow.operators.python import PythonOperator
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-# Nạp biến môi trường từ .env (Airflow không tự load) — FB_HEADLESS, FB_BATCH_SIZE, v.v.
-try:
-    from dotenv import load_dotenv
-    load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
-except Exception:
-    pass
+# config/dags.yaml → biến môi trường của DAG này. PHẢI trước mọi import code dự án:
+# các module đọc biến môi trường ngay lúc import. Nạp luôn .env (FB_HEADLESS, FB_BATCH_SIZE…).
+from dags.dag_config import apply_dag_config, log_applied, schedule_from_env  # noqa: E402
+apply_dag_config('legacy_fb_groups_crawler')
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +71,7 @@ default_args = {
 # ---------------------------------------------------------------------------
 
 def task_crawl_all_groups(**context):
+    log_applied()
     from platform_crawlers.facebook_groups.fb_session import FBSession
     from platform_crawlers.facebook_groups.fb_group_media import FBGroupMediaScraper
     from crawler_core.facebook_downloader import VideoDownloader
@@ -190,7 +189,7 @@ with DAG(
     description='[CŨ] Tải video trong các nhóm Facebook đã tham gia → VideoPipeline (nhãn chung CCTV). Bản mới: social_crawler_fb',
     default_args=default_args,
     start_date=datetime(2026, 6, 18),
-    schedule='0 */24 * * *',
+    schedule=schedule_from_env('FB_GROUPS_SCHEDULE', '0 */24 * * *'),
     catchup=False,
     max_active_runs=1,
     tags=['legacy', 'facebook', 'video_crawler'],

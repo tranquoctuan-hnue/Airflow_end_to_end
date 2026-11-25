@@ -85,7 +85,7 @@ src/                    logic của camera_dataset_*: đọc camera, YOLO, Paddl
   pipeline/tasks/            từng bước: capture → detect → crop → OCR / thuộc tính / mũ BH → lưu
 rtsp/                   danh sách camera (không có trong git, trừ cameras.example.txt)
 scripts/                setup.sh, doctor.py, cookie, báo cáo, gộp nhãn, backfill
-config/                 gemini_keys.json (không có trong git; mẫu: gemini_keys.example.json)
+config/                 dags.yaml (tham số từng DAG), gemini_keys.json (không có trong git; mẫu: gemini_keys.example.json)
 data/                   (không có trong git) db/tracker.db = lịch sử dedup, staging, dataset nội bộ
 cookies/                (không có trong git) cookie đăng nhập từng platform
 models/                 (không có trong git) xem models/README.md
@@ -206,10 +206,17 @@ bash scripts/setup.sh            # thêm --rtsp nếu chạy pipeline camera, --
 
 ### 3. Cấu hình riêng của máy
 
+**Tham số của từng DAG** (đường dẫn, model, ngưỡng, số phút chạy, lịch) nằm trong
+[config/dags.yaml](config/dags.yaml), mỗi DAG một phần, có chú thích. File này có trong
+git: sửa ở máy chính rồi pull sang máy khác. Giá trị chỉ riêng một máy (ví dụ thư mục
+NAS) ghi vào `config/dags.local.yaml` (không có trong git, cùng cấu trúc, chỉ cần các
+mục muốn đổi). Ưu tiên: biến môi trường / `.env` > `dags.local.yaml` > `dags.yaml` >
+mặc định trong code. Sửa xong có hiệu lực từ lượt chạy sau, không cần khởi động lại.
+
 | Việc | Cách làm |
 |---|---|
-| **Nơi lưu video** (bắt buộc) | Sửa `CRAWL_VIDEO_OUTPUT_DIR` trong `.env`. Giá trị mặc định là NAS của máy gốc, máy khác sẽ không có |
-| **Model VideoMAE** | Chép vào `models/`, xem [models/README.md](models/README.md). Không có model thì đặt `SOCIAL_USE_VIDEOMAE=false` |
+| **Nơi lưu video** (bắt buộc) | `social_crawler: {video_output_dir: ...}` trong `config/dags.local.yaml`. Giá trị mặc định là NAS của máy gốc, máy khác sẽ không có |
+| **Model VideoMAE** | Chép vào `models/`, xem [models/README.md](models/README.md). Không có model thì đặt `social_crawler.filters.videomae: false` trong `config/dags.yaml` |
 | **Gemini API key** | Điền vào `config/gemini_keys.json`. Không có key thì crawler dùng từ khóa tiếng Anh tĩnh |
 | **Đăng nhập các platform** | Đăng nhập X, Facebook, Reddit, Dailymotion **trong Chrome thường**, rồi chạy `airflow_venv/bin/python scripts/import_browser_cookies.py`. **X và Facebook bắt buộc**, Reddit nên có. Xem mục "Phiên đăng nhập" bên dưới |
 | **Camera RTSP** (chỉ pipeline camera) | Danh sách URL để trong `rtsp/*.txt` dạng `rtsp://{rtsp_cam_1}@host:554/...` (mẫu `rtsp/cameras.example.txt`). Tài khoản camera tạo ở **Admin → Connections**: id `rtsp_cam_1`, Login và Password. **Không ghi mật khẩu vào file** |
@@ -292,7 +299,7 @@ Mọi thao tác đều làm được trên giao diện web, không cần sửa c
 - **Khóa của `crawler_filters`:** `cctv`, `portrait`, `dedup`, `videomae`.
   Khóa platform `"*"` nghĩa là áp dụng cho mọi platform.
 - **Thứ tự ưu tiên khi quyết định bật/tắt bộ lọc:** form Trigger > Variable > mặc định
-  trong `.env` và `start_airflow.sh`.
+  trong `config/dags.yaml` (`social_crawler.filters`).
 - **Log đầu mỗi lượt chạy** ghi rõ từng bộ lọc đang bật hay tắt, và lấy từ nguồn nào.
 
 **Truy cập từ máy khác trong mạng LAN:** web đã nghe trên `0.0.0.0:8080`. Mở cổng trên
@@ -371,7 +378,9 @@ một lớp giả chép file có sẵn và dùng DB tạm, để test bộ lọc
 |---|---|---|
 | `ImportError: numpy.core.multiarray failed to import` khi import `cv2` | Cài thêm gói camera (`--rtsp`) nâng numpy lên 2.x, và `paddleocr → pdf2docx` kéo thêm `opencv-python-headless` ghi đè thư mục `cv2/` | `pip uninstall -y opencv-python-headless && pip install --force-reinstall --no-deps numpy==1.26.4 opencv-python==4.6.0.66 opencv-contrib-python==4.6.0.66`. `setup.sh` đã tự làm bước này |
 | YouTube: `downloaded=0`, lỗi HTTP 403 | yt-dlp cũ | `airflow_venv/bin/pip install -U yt-dlp` |
-| Mọi DAG crawler lỗi ngay khi bắt đầu | Chưa mount NAS / `CRAWL_VIDEO_OUTPUT_DIR` sai | Mount NAS, hoặc sửa đường dẫn trong `.env` |
+| Mọi DAG crawler lỗi ngay khi bắt đầu | Chưa mount NAS / `video_output_dir` sai | Mount NAS, hoặc sửa `social_crawler.video_output_dir` trong `config/dags.local.yaml` |
+| DAG báo lỗi import `ConfigError` | Sai tên mục / sai kiểu trong `config/dags.yaml` | Sửa theo thông báo lỗi (có liệt kê mục hợp lệ), kiểm tra bằng `scripts/doctor.py` |
+| Sửa `config/dags.yaml` mà không thấy đổi | Biến cùng tên trong `.env` đang ghi đè | `scripts/doctor.py` và log đầu task báo ⚠ biến nào — bỏ nó khỏi `.env` |
 | X / Facebook ra 0 URL nhưng task vẫn SUCCESS | Cookie hết hạn | Đăng nhập lại trên Chrome → `scripts/import_browser_cookies.py <platform>` |
 | Task kẹt ở trạng thái `queued` mãi | Mất pool GPU, hoặc DAG khác đang giữ slot | `airflow pools set social_crawler_gpu 1 "GPU"`; kiểm tra `camera_source_youtube_live` (giữ slot 12 tiếng) |
 | CUDA out of memory | Hai model chạy cùng lúc, hoặc có tiến trình khác chiếm GPU | `nvidia-smi` để tìm tiến trình; đảm bảo task nằm trong pool |

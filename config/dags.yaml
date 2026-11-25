@@ -1,0 +1,238 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# CẤU HÌNH TỪNG DAG — đường dẫn, model, ngưỡng, thời gian chạy
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Sửa xong KHÔNG cần khởi động lại Airflow: mỗi task đọc lại file này lúc bắt đầu, nên
+# lượt chạy kế tiếp dùng giá trị mới. (Lịch chạy / pool cần ~30s để Airflow parse lại.)
+#
+# Cách đọc:
+#   - Mỗi phần ngoài cùng là 1 DAG (dag_id), hoặc 1 nhóm áp dụng cho nhiều DAG:
+#       chung            → mọi DAG
+#       social_crawler   → 5 DAG social_crawler_* + legacy_fb_groups_crawler
+#       camera_dataset   → 3 DAG camera_dataset_vehicle_anpr / _person_attributes / _helmet
+#     Mục ghi ở phần riêng của DAG ghi đè mục cùng tên của nhóm, vd đặt
+#     `videomae: {threshold: 0.6}` trong social_crawler_x thì chỉ X dùng 0,6.
+#   - Để trống (null, ~) = dùng mặc định trong code.
+#   - Đường dẫn tương đối tính từ thư mục dự án; ~ = thư mục home.
+#   - Viết sai tên mục / sai kiểu → DAG báo lỗi import trên giao diện (cố ý, để không
+#     âm thầm chạy với giá trị cũ). Kiểm tra trước: airflow_venv/bin/python scripts/doctor.py
+#
+# Riêng từng máy (vd thư mục NAS chỉ máy .35 có): tạo config/dags.local.yaml (không có
+# trong git) cùng cấu trúc, chỉ ghi các mục cần đổi — nó ghi đè file này.
+#
+# Ưu tiên (cao → thấp):
+#   biến môi trường / .env  >  config/dags.local.yaml  >  config/dags.yaml  >  mặc định code
+# Biến môi trường thắng để .env riêng từng máy vẫn chạy như cũ. Nếu sửa ở đây mà không
+# thấy đổi: doctor.py và log đầu task báo ⚠ biến nào trong .env đang che giá trị YAML.
+#
+# Bảng mục → biến môi trường: dags/dag_config.py (SCHEMA).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+chung:
+  tracker_db: data/db/tracker.db          # DB lịch sử dedup — test KHÔNG được trỏ vào đây
+  models_dir: models                      # thư mục model của nhóm camera_dataset (ANPR, PaddleClas, SAM3)
+  gemini_model: gemini-2.5-flash          # sinh từ khóa search
+  gemini_keys_file: config/gemini_keys.json
+
+
+# ── Crawler video mạng xã hội ───────────────────────────────────────────────────
+social_crawler:
+  # chain = chạy lần lượt theo Variable crawler_rotation (youtube → dailymotion → reddit
+  #         → youtube...), mỗi DAG xong tự trigger DAG kế.
+  # pool  = cơ chế cũ: mọi DAG chạy theo lịch 10 phút, pool 1 slot chọn ai chạy.
+  # Chỉ đặt được ở đây (không đặt riêng từng platform): cả vòng phải cùng 1 chế độ.
+  rotation_mode: chain
+
+  # Nơi lưu. Để trống = NAS pvn_share/tuantq/video qua gvfs, video bị loại nằm cạnh nó
+  # ở video_rejected/. Máy không mount NAS: đặt trong config/dags.local.yaml.
+  video_output_dir: ~
+  rejected_dir: ~
+  staging_dir: data/.staging              # file tải dở — phải là ổ local, không để trên NAS
+
+  # Video bị bộ lọc loại: move = chuyển sang rejected_dir/<lý do>/ kèm <file>.json để tự
+  # kiểm tra bộ lọc có loại đúng không; delete = xóa luôn khi đã tin bộ lọc.
+  # Chọn riêng từng lý do: Variable crawler_reject_action trên giao diện.
+  reject_action: move
+
+  labels: []                              # [] = mọi nhãn; vd [Arson, Robbery]
+
+  # Trần thời gian MỖI LƯỢT của 1 platform (phút), task tự dừng giữa 2 URL rồi nhả slot
+  # GPU. Không có trần: YouTube ~5,6h/lượt giữ slot, 4 platform kia gần như không chạy;
+  # lượt dailymotion 2026-08-03 chạy hết 3h timeout rồi bị kill. 0 = không giới hạn.
+  task_time_budget_minutes: 60
+
+  # Trần MỖI NHÃN trong 1 lượt. VLM ~48s/URL (đo 2026-08-05) ⇒ 60 phút ≈ 75 URL ⇒ 25/nhãn
+  # đi qua ~3 nhãn/lượt. Đặt cao (300) từng làm reddit/youtube kẹt ở nhãn Abuse 5 ngày.
+  max_per_label: 25
+  max_per_platform: 1200
+  # Số URL mỗi từ khóa — đây mới là nút độ sâu cuộn: vòng cuộn dừng ở len(found) >= mục
+  # này, tăng max_scrolls một mình không có tác dụng.
+  max_per_target: 100
+  max_scrolls: 60
+  discovery_timeout_s: 600                # 60 lần cuộn × ~2,5s ≈ 150s + tải trang
+  max_duration_s: 1800                    # bỏ video dài hơn (giây); Dailymotion có mục riêng
+  keywords_per_label: 3
+  llm_keywords: true                      # false = dùng từ khóa tĩnh, không gọi Gemini
+
+  # Chọn nhãn theo THIẾU HỤT (nhãn ít video nhất đi trước) — thứ tự cố định thì nhãn cuối
+  # bảng không bao giờ tới lượt khi có trần thời gian. State: state/label_cursor.json.
+  label_rotation:
+    enabled: true
+    empty_streak: 3          # ghé 3 lượt liền không ra video → đẩy nhãn xuống cuối…
+    backoff_hours: 6         # …trong 6h, gấp đôi mỗi lần thất bại thêm…
+    backoff_max_hours: 48    # …tối đa 48h. Không có nó nhãn rỗng chiếm slot vĩnh viễn.
+    target: 0                # nhãn đủ số video này thì nhường nhãn thiếu (0 = tắt)
+
+  # Bật/tắt bộ lọc mặc định. Giao diện vẫn ghi đè được: Variable crawler_filters và form
+  # Trigger. ⚠ filters.cctv: false đưa task về default_pool → mất cơ chế 1 platform/lúc.
+  filters:
+    cctv: true
+    videomae: true
+
+  # Bộ phân loại CCTV chạy trên file đã tải
+  cctv:
+    classifier: clip         # clip = cctv_detector.py (tách cảnh, CLIP + OCR timestamp);
+                             # qwen = Qwen2.5-VL cũ trên 1 frame
+    threshold_hi: 0.7        # đoạn ≥ ngưỡng này là CCTV
+    threshold_lo: 0.3        # đoạn ≤ ngưỡng này là không phải CCTV
+    min_cctv_seconds: 2.0    # tổng giây CCTV tối thiểu để giữ video
+    probe: ~                 # ~ = models/cctv_probe.joblib nếu có, không có thì zero-shot
+    device: ~                # cuda | cpu, ~ = tự chọn
+    qwen_model: Qwen/Qwen2.5-VL-3B-Instruct   # chỉ dùng khi classifier: qwen
+    qwen_load_4bit: false
+
+  # Bộ lọc sự việc cuối cùng: VideoMAE ViT-L tự fine-tune. Video ĐẠT khi có ít nhất 1 đoạn
+  # 5s mang nhãn khác Normal với xác suất >= threshold. Chi tiết: crawler_core/videomae_filter.py
+  videomae:
+    model_dir: models/Video_understanding/vitl_224x224_240926
+    checkpoint: ~            # ~ = <model_dir>/checkpoint-best.pth
+    labels_file: ~           # ~ = <model_dir>/labels.txt
+    threshold: 0.5
+    window_s: 5
+    aggregate: max           # max: đoạn đạt nếu BẤT KỲ clip ~2s nào đạt (bắt sự việc ngắn);
+                             # mean: trung bình mọi view như segment_infer.py (bỏ sót nhiều hơn)
+    temporal_views: auto     # auto = vừa đủ phủ kín đoạn 5s: 2 ở 25fps, 3 ở 30fps
+    num_crops: 1             # 3 = trái/giữa/phải như segment_infer.py, chậm gấp 3
+    device: ~
+    batch: 4
+    fp16: false              # GTX 1660 SUPER không có tensor core: fp16 CHẬM hơn
+    decoder: ffmpeg          # decord giải mã nền cả video vào RAM → OOM với video dài
+
+  dedup:
+    duration_tolerance: 0.2  # L3/L4 cùng vị trí: chỉ so clip lệch thời lượng ≤ 20%
+    cross_dist: 6            # L4 chéo vị trí: 2 frame trùng khi khác ≤ 6 bit
+    cross_min_frames: 2      # …và cần ≥ 2 frame trùng mỗi bên
+    low_info_edge: 5.0       # bỏ frame tối/trơn khỏi phép so chéo
+
+
+social_crawler_youtube:
+  keywords: []               # [] = Gemini sinh theo nhãn; có giá trị = dùng đúng list này
+
+social_crawler_dailymotion:
+  keywords: []
+  # Search Dailymotion hay lẫn phim/show TV dài (gặp 32 phút) mà bộ lọc "5-30 min" của
+  # chính Dailymotion không lọc đủ chi tiết → trần cứng 15 phút.
+  max_duration_s: 900
+  # API công khai: 500 URL / 6,5s, không cần cookie; quét HTML: 20 URL / 8,5s (đo 2026-08-03).
+  use_api: true
+  api_max_pages: 10          # 100 kết quả/trang, API chặn ở 1000 nên > 10 vô nghĩa
+  max_pages: 15              # chỉ dùng khi API lỗi (quét HTML)
+
+social_crawler_reddit:
+  subreddits: [CaughtOnCamera, PublicFreakout, IdiotsInCars, Whatcouldgowrong, instantkarma]
+  global_search: true        # search toàn Reddit bằng từ khóa của nhãn, 1 request/từ khóa
+
+social_crawler_x:
+  queries: []                # [] = Gemini sinh theo nhãn
+  accounts: []
+  search_suffix: "filter:videos"
+  search_tab: media          # media | latest
+
+social_crawler_fb:
+  keywords: []
+  max_scrolls: 60
+
+legacy_fb_groups_crawler:
+  schedule: "0 */24 * * *"   # "none" = chỉ chạy tay
+  headless: true
+  batch_size: 100
+  category: CCTV
+  deep_scan: false           # true = cuộn hết đáy nhóm, lấy cả video cũ (chậm)
+
+
+# ── Camera đang phát → clip sự việc 5s (VideoMAE multi-label) ───────────────────
+camera_dataset_video_events:
+  camera_file: rtsp/cam_event.txt
+  # ViT-L multi-label 368x640, 16 đầu ra (train 2026-11-23, val mAP 66,0)
+  model_dir: models/Video_understanding/vitl_368x640_ml16_231126
+  checkpoint: ~              # ~ = <model_dir>/checkpoint-best.pth
+  thresholds_file: ~         # ~ = <model_dir>/thresholds.json — chỉ để ghi nhãn annotation
+  threshold: 0.40            # LƯU đoạn khi có đầu ra > ngưỡng này
+  output_dir: data/camera_events          # đặt được là NAS (ghi NAS lỗi → lưu tạm local)
+  ring_dir: data/camera_events/.ring      # file đoạn tạm, ghi 5s/lần — PHẢI là ổ local
+  # GPU chỉ theo kịp 1 luồng: ViT-L 368x640 tốn 3,9s cho mỗi đoạn 5s (GTX 1660 SUPER,
+  # đo 2026-11-25) → xem lần lượt từng camera.
+  minutes_per_camera: 5
+  run_minutes: 60            # mỗi lượt DAG xoay vòng bao lâu rồi kết thúc
+  segment_s: 5               # phải khớp lúc train
+  device: ~
+  crf: 23                    # chất lượng libx264 của clip lưu lại
+  # 1080p30 làm mỗi đoạn chậm lên 5,2–5,7s và bắt đầu rớt đoạn (đo 2026-11-25); model
+  # chỉ nhận 368x640 nên 720 vẫn dư.
+  max_height: 720
+  # Task giữ slot GPU suốt run_minutes, các DAG GPU khác phải chờ. Máy chỉ chạy DAG
+  # này thì đặt default_pool.
+  pool: social_crawler_gpu
+
+
+# ── Camera đang phát → ảnh có nhãn cho model YOLO/OCR ──────────────────────────
+camera_dataset:
+  run_mode: parallel         # parallel | sequential
+  # Model xe dùng chung cho vehicle_anpr và helmet (3 DAG nằm chung 1 file DAG nên không
+  # tách riêng được)
+  vehicle_model: models/Yolo_detect/Vehicle/yolov11n_vh_640_170426/weights/best.pt
+  vehicle_conf: 0.7
+
+camera_dataset_vehicle_anpr:
+  schedule: none             # none = chỉ chạy tay; hoặc cron, vd "0 7 * * *"
+  camera_file: rtsp/cam_vh_lp.txt
+  ocr_det_model_dir: ~       # ~ = ~/Documents/models/OCR/det_best_mv3_large_x0.5 nếu có, không thì models/ANPR/det/inference
+  ocr_rec_model_dir: models/ANPR/rec/inference
+  ocr_conf: 0.9
+  vehicle_output_dir: data/vehicle
+  anpr_output_dir: data/anpr
+
+camera_dataset_person_attributes:
+  schedule: none
+  camera_file: rtsp/cam_person.txt
+  person_model: models/Yolo_detect/Person/yolov11n_human_640_0610252/weights/best.pt
+  person_conf: 0.5
+  attribute_model_dir: ~     # ~ = ~/Documents/PaddleClas/output/infer_model nếu có, không thì models/Attribute_person/inference
+  attribute_class_map: ~
+  attribute_conf: 0.8
+  person_output_dir: data/person
+  attributes_output_dir: data/attributes
+
+camera_dataset_helmet:
+  schedule: "0 0 * * *"      # 0h UTC = 7h sáng giờ VN
+  run_hours: 10              # 7h–17h; timeout task = run_hours + 2
+  camera_file: rtsp/cam_vh_helmet.txt
+  helmet_model: models/Yolo_detect/Helmet/yolov26m_320_helmet_190626/weights/best.pt
+  helmet_conf: 0.7
+  helmet_output_dir: data/helmet
+
+
+# ── Tìm luồng CCTV đang live trên YouTube (nguồn camera) ───────────────────────
+camera_source_youtube_live:
+  schedule: "0 18 * * *"     # 18h giờ VN
+  # ⚠ Giữ slot GPU suốt run_hours: trong lúc đó 5 DAG social_crawler_* kẹt queued.
+  run_hours: 12
+  keywords: [live cctv camera, live traffic camera, live street camera, live security camera, live city cam]
+  llm_keywords: true         # true = Gemini sinh từ khóa, list trên chỉ là dự phòng
+  num_llm_keywords: 5
+  results_per_keyword: 15
+  cctv_filter: true          # false = chỉ lọc theo tiêu đề, không cần GPU
+  qwen_model: Qwen/Qwen2.5-VL-3B-Instruct
+  output_file: data/videos/youtube_cctv/live_streams.txt
+  snapshot_dir: data/videos/youtube_cctv/snapshots
+  checked_history_file: data/videos/youtube_cctv/checked_history.txt

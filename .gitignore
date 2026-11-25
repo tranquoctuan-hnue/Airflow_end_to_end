@@ -10,6 +10,8 @@ cookies/
 *_cookies.json
 *_cookies.txt
 config/gemini_keys.json
+# Cấu hình DAG riêng từng máy (ghi đè config/dags.yaml)
+config/dags.local.yaml
 # Danh sách camera RTSP chứa user:mật_khẩu trong URL — chỉ đẩy file mẫu
 rtsp/*.txt
 !rtsp/*.example.txt

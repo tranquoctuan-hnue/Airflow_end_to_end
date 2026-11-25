@@ -106,13 +106,32 @@ section('Cấu hình (.env, key, nơi lưu)')
 report('ok' if os.path.exists(os.path.join(ROOT, '.env')) else 'warn', '.env', '',
        'cp .env.example .env rồi sửa')
 
+# config/dags.yaml: sai tên mục / sai kiểu làm DAG lỗi import, biến .env che giá trị YAML
+# làm sửa YAML không có tác dụng — báo cả hai ở đây.
+try:
+    from dags import dag_config
+    _cfg_files = [os.path.relpath(f, ROOT) for f in (dag_config.CONFIG_FILE, dag_config.LOCAL_CONFIG_FILE)
+                  if os.path.exists(f)]
+    _problems = dag_config.check_all()
+    for level, msg in _problems:
+        report(level, 'config/dags.yaml', msg,
+               'sửa file YAML' if level == 'fail' else 'bỏ biến đó khỏi .env nếu muốn dùng giá trị YAML')
+    if not any(level == 'fail' for level, _ in _problems):
+        report('ok' if _cfg_files else 'warn', 'Cấu hình DAG', ', '.join(_cfg_files) or 'không có config/dags.yaml',
+               'git checkout config/dags.yaml')
+    # Các kiểm tra bên dưới dùng giá trị mà task crawler sẽ thấy
+    dag_config.apply_dag_config('social_crawler_youtube')
+except Exception as e:
+    report('fail', 'config/dags.yaml', str(e)[:300], 'sửa file YAML')
+
 try:
     from crawler_core.downloader import OUTPUT_BASE, REJECTED_BASE
     for name, path in (('Nơi lưu video', OUTPUT_BASE), ('Nơi lưu video bị loại', REJECTED_BASE)):
         parent = path if os.path.isdir(path) else os.path.dirname(path)
         ok = os.path.isdir(parent) and os.access(parent, os.W_OK)
         report('ok' if ok else 'fail', name, path,
-               'đặt CRAWL_VIDEO_OUTPUT_DIR trong .env tới thư mục ghi được (NAS chưa mount?)')
+               'đặt social_crawler.video_output_dir trong config/dags.local.yaml tới thư mục '
+               'ghi được (NAS chưa mount?)')
 except Exception as e:
     report('fail', 'crawler_core.downloader', str(e)[:120])
 
@@ -154,7 +173,20 @@ if all(os.path.exists(f) for f in vfiles):
 else:
     report('fail' if use_vmae else 'ok', 'VideoMAE',
            f'thiếu checkpoint-best.pth / labels.txt trong {vdir}' if use_vmae else 'đang tắt',
-           'chép model theo models/README.md, hoặc SOCIAL_USE_VIDEOMAE=false trong .env')
+           'chép model theo models/README.md, hoặc social_crawler.filters.videomae: false '
+           'trong config/dags.yaml')
+
+# Model của DAG camera_dataset_video_events — đọc theo phần riêng của DAG đó
+try:
+    dag_config.apply_dag_config('camera_dataset_video_events')
+    edir = os.environ.get('CAMERA_EVENT_MODEL_DIR') or os.path.join(
+        ROOT, 'models', 'Video_understanding', 'vitl_368x640_ml16_231126')
+    eckpt = os.environ.get('CAMERA_EVENT_CHECKPOINT') or os.path.join(edir, 'checkpoint-best.pth')
+    report('ok' if os.path.exists(eckpt) else 'warn', 'VideoMAE camera_dataset_video_events',
+           os.path.relpath(eckpt, ROOT) if eckpt.startswith(ROOT) else eckpt,
+           'chỉ cần nếu chạy DAG camera_dataset_video_events — xem models/README.md')
+except Exception as e:
+    report('warn', 'VideoMAE camera_dataset_video_events', str(e)[:160])
 
 # ── Cookie đăng nhập ─────────────────────────────────────────────────────────
 section('Cookie đăng nhập (chỉ cần cho platform định chạy)')

@@ -428,8 +428,9 @@ liên tục. Chi tiết ở docstring `dags/social_crawler_common.py`.
 
 Hai lưu ý riêng cho YouTube:
 - Task YouTube chạy LÂU nhất (2h33m mà mới xong 5/11 nhãn) nên **nó sẽ độc chiếm
-  vòng xoay** nếu không đặt trần thời gian mỗi lượt. `start_airflow.sh` đang
-  export `CRAWL_TASK_TIME_BUDGET_MINUTES=60`; bỏ biến đó là YouTube ăn hết slot.
+  vòng xoay** nếu không đặt trần thời gian mỗi lượt. `config/dags.yaml` đang đặt
+  `social_crawler.task_time_budget_minutes: 60` (mặc định code cũng 60); đặt 0 là
+  YouTube ăn hết slot.
 - DAG `camera_source_youtube_live` giờ ĐÃ nằm trong pool này (mục 1.5), nhưng nó
   giữ slot liên tục 12h nên nửa ngày sẽ không có platform nào chạy được.
 

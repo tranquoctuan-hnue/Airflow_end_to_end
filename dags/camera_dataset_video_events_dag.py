@@ -26,8 +26,9 @@ Cài đặt (máy mới):
      (checkpoint-best.pth bản gọn 1,1 GB + thresholds.json) — xem models/README.md.
   2. Camera: chép rtsp/cam_event.example.txt → rtsp/cam_event.txt.
   3. Tài khoản camera: Airflow Connection theo {conn_id} trong URL.
-Biến môi trường: CAMERA_EVENT_* (đầu file camera_event_recorder.py), CAMERA_EVENT_FILE,
-CAMERA_EVENT_RUN_MINUTES, CAMERA_EVENT_POOL.
+Cấu hình (model, ngưỡng, thư mục lưu, số phút…): config/dags.yaml, phần
+camera_dataset_video_events. Tên biến môi trường tương ứng: CAMERA_EVENT_* (đầu file
+camera_event_recorder.py), CAMERA_EVENT_FILE, CAMERA_EVENT_RUN_MINUTES, CAMERA_EVENT_POOL.
 
 Tạm dừng: airflow dags pause camera_dataset_video_events
 """
@@ -44,6 +45,10 @@ from airflow.operators.python import PythonOperator
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
+# config/dags.yaml → biến môi trường CAMERA_EVENT_* của DAG này (nạp luôn .env).
+from dags.dag_config import apply_dag_config, log_applied  # noqa: E402
+apply_dag_config('camera_dataset_video_events')
+
 logger = logging.getLogger('airflow.task.camera_dataset_video_events')  # xem camera_event_recorder.py
 
 HCM_TZ = pendulum.timezone('Asia/Ho_Chi_Minh')
@@ -58,13 +63,9 @@ GPU_POOL = os.environ.get('CAMERA_EVENT_POOL') or 'social_crawler_gpu'
 
 
 def task_record_events(**context):
-    # Nạp .env lúc task chạy (như social_crawler_common): sửa CAMERA_EVENT_* trong .env
-    # có hiệu lực từ run sau, không phải khởi động lại Airflow. Không ghi đè biến đã có.
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
-    except Exception:
-        pass
+    # Mỗi task parse lại file DAG trong tiến trình riêng nên sửa config/dags.yaml hay .env
+    # có hiệu lực từ run sau, không phải khởi động lại Airflow.
+    log_applied()
     from src.modules.camera_event_recorder import (
         MINUTES, OUTPUT_DIR, THRESHOLD, VideoMAEMultiLabel, rotate)
     from src.modules.config import RTSP_FILE
@@ -92,7 +93,8 @@ def task_record_events(**context):
 
 with DAG(
     dag_id='camera_dataset_video_events',
-    description='Camera RTSP/YouTube live xoay vòng 5 phút/camera → VideoMAE 368x640 → lưu đoạn 5s có đầu ra > 40%',
+    description=(f'Camera RTSP/YouTube live xoay vòng {MINUTES_PER_CAMERA:g} phút/camera → VideoMAE '
+                 f'→ lưu đoạn 5s có đầu ra > {float(os.environ.get("CAMERA_EVENT_THRESHOLD") or 0.4):.0%}'),
     start_date=pendulum.datetime(2026, 11, 25, 0, 0, tz=HCM_TZ),
     schedule='* * * * *',
     catchup=False,

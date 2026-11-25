@@ -19,9 +19,12 @@ Tổng quan, cài đặt, vận hành: xem `README.md`. Hướng dẫn từng lo
 
 - Comment và log viết **tiếng Việt**, giải thích **vì sao** kèm số đo thực tế và ngày đo.
   Giữ nguyên phong cách này.
-- Mọi tham số đều ghi đè được bằng biến môi trường: crawler ở
-  `platform_crawlers/config.py`, VideoMAE ở `crawler_core/videomae_filter.py`. Không
-  viết cứng đường dẫn máy; tính từ `__file__`.
+- Tham số từng DAG đặt trong `config/dags.yaml`; `dags/dag_config.py` đổi nó thành biến
+  môi trường (bảng `SCHEMA`), mỗi file DAG gọi `apply_dag_config()` trước khi import code
+  dự án. Tham số mới: đọc bằng biến môi trường trong code, thêm 1 dòng vào `SCHEMA` và 1
+  mục vào `config/dags.yaml`. Biến môi trường / `.env` luôn thắng YAML. Mặc định nằm ở
+  `platform_crawlers/config.py`, `crawler_core/videomae_filter.py`, `src/modules/config.py`.
+  Không viết cứng đường dẫn máy; tính từ `__file__`.
 - Bộ lọc bật/tắt được từ giao diện qua `FILTERS` + `resolve_filters()` trong
   `dags/social_crawler_common.py`.
 - Python 3.10, Airflow 3.1.6 (Task SDK: `from airflow.sdk import Param, Variable`).
