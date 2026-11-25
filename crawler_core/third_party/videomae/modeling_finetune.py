@@ -1,7 +1,10 @@
-# Vendored từ https://github.com/MCG-NJU/VideoMAE (commit 14ef8d8) — modeling_finetune.py,
+# Vendored từ https://github.com/MCG-NJU/VideoMAE (commit 14ef8d8) — modeling_finetune.py, cập nhật 2026-11-25,
 # CÓ các sửa đổi cục bộ của dự án (bản ở ~/Documents/VideoMAE lúc train model).
 # Giấy phép gốc: CC BY-NC 4.0 (chỉ dùng phi thương mại) — xem LICENSE cùng thư mục.
 # Đưa vào repo để máy clone về chạy được bộ lọc VideoMAE mà không cần repo VideoMAE.
+# Từ 2026-11-25 thêm: lưới vị trí cho input khác 224 (get_grid_sinusoid_table, vd 368x640),
+# pool='topk' (model multi-label camera_dataset_video_events). Ở 224 + pool mean kết quả
+# giống hệt bản cũ (đã so trên vitl_224x224_240926).
 
 from functools import partial
 import numpy as np
@@ -172,7 +175,41 @@ def get_sinusoid_encoding_table(n_position, d_hid):
     sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2]) # dim 2i 
     sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2]) # dim 2i+1 
 
-    return  torch.tensor(sinusoid_table,dtype=torch.float, requires_grad=False).unsqueeze(0) 
+    return  torch.tensor(sinusoid_table,dtype=torch.float, requires_grad=False).unsqueeze(0)
+
+
+def get_grid_sinusoid_table(grid, d_hid, base_hw=(14, 14)):
+    """Fixed position table for a (T, H, W) token grid.
+
+    The table above is 1-D over the flattened tokens. Pretraining and every checkpoint
+    so far used the 224 grid, (8, 14, 14), so position n means
+    (t, h, w) = divmod chain of n with rows wrapping every 14 tokens. Rebuilding the 1-D
+    table for another grid (e.g. 23 x 40 at 368x640) would give the same n a different
+    (h, w) and throw away what the weights learned about positions. Instead, build the
+    table on the base grid and resize it spatially to the new one, as is usual for
+    learned ViT position embeddings. On the base grid this returns the original table
+    unchanged.
+    """
+    T, H, W = grid
+    bh, bw = base_hw
+    table = get_sinusoid_encoding_table(T * bh * bw, d_hid)
+    if (H, W) == (bh, bw):
+        return table
+    t = table.reshape(T, bh, bw, d_hid).permute(0, 3, 1, 2)  # T, C, bh, bw
+    t = F.interpolate(t, size=(H, W), mode='bicubic', align_corners=False)
+    return t.permute(0, 2, 3, 1).reshape(1, T * H * W, d_hid)
+
+
+def topk_pool(token_logits, valid, ratio):
+    """Clip logits [B, C] = per class, the mean of the k highest token logits [B, N, C],
+    k = ceil(ratio * valid tokens of that clip). Tokens with valid False never count."""
+    valid = valid | ~valid.any(1, keepdim=True)  # an all-padding clip: use every token
+    k = (valid.sum(1).float() * ratio).ceil().long().clamp_min(1)  # [B]
+    s = token_logits.masked_fill(~valid[..., None], float('-inf'))
+    top = s.topk(int(k.max()), dim=1).values  # [B, kmax, C], sorted high to low
+    keep = torch.arange(top.shape[1], device=top.device)[None, :] < k[:, None]
+    top = top.masked_fill(~keep[..., None], 0.0)
+    return top.sum(1) / k[:, None].to(top.dtype)
 
 
 class VisionTransformer(nn.Module):
@@ -200,8 +237,17 @@ class VisionTransformer(nn.Module):
                  all_frames=16,
                  tubelet_size=2,
                  use_checkpoint=False,
-                 use_mean_pooling=True):
+                 use_mean_pooling=True,
+                 pool='mean',
+                 topk_ratio=0.05):
         super().__init__()
+        assert pool in ('mean', 'topk'), pool
+        # 'topk' (weakly supervised localisation, multiple-instance learning): the head scores
+        # every token, and a clip's logit is the mean of its top-k token logits, so the
+        # token logits themselves are a map of where each class is (forward_token_logits).
+        # Same parameters as 'mean', so checkpoints load either way.
+        assert pool == 'mean' or use_mean_pooling, "pool='topk' needs fc_norm (use_mean_pooling)"
+        self.pool, self.topk_ratio = pool, topk_ratio
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.tubelet_size = tubelet_size
@@ -214,7 +260,10 @@ class VisionTransformer(nn.Module):
             self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
         else:
             # sine-cosine positional embeddings is on the way
-            self.pos_embed = get_sinusoid_encoding_table(num_patches, embed_dim)
+            img_hw = self.patch_embed.img_size
+            p = self.patch_embed.patch_size
+            grid = (all_frames // self.tubelet_size, img_hw[0] // p[0], img_hw[1] // p[1])
+            self.pos_embed = get_grid_sinusoid_table(grid, embed_dim)
 
         self.pos_drop = nn.Dropout(p=drop_rate)
 
@@ -263,7 +312,8 @@ class VisionTransformer(nn.Module):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x):
+    def forward_tokens(self, x):
+        """Input [B, 3, T, H, W] -> last-block tokens [B, N, D], N = T/2 * H/16 * W/16."""
         x = self.patch_embed(x)
         B, _, _ = x.size()
 
@@ -282,13 +332,47 @@ class VisionTransformer(nn.Module):
             for blk in self.blocks:
                 x = blk(x)
 
-        x = self.norm(x)
+        return self.norm(x)
+
+    def forward_features(self, x):
+        x = self.forward_tokens(x)
         if self.fc_norm is not None:
             return self.fc_norm(x.mean(1))
         else:
             return x[:, 0]
 
+    def token_grid(self, x):
+        """(T', H', W') of the token grid for input x."""
+        p, t = self.patch_embed.patch_size, self.tubelet_size
+        return x.shape[2] // t, x.shape[3] // p[0], x.shape[4] // p[1]
+
+    def valid_tokens(self, x):
+        """[B, N] bool, False for tokens that are letterbox padding only (every pixel of the
+        2x16x16 tubelet is normalised black), so top-k pooling cannot pick the border."""
+        from clip_preprocess import pad_value
+        B = x.shape[0]
+        T, H, W = self.token_grid(x)
+        p, t = self.patch_embed.patch_size, self.tubelet_size
+        pad = (x - pad_value(x.device, x.dtype)).abs().amax(1) < 1e-2  # [B, T, H, W]
+        pad = pad.view(B, T, t, H, p[0], W, p[1]).all(6).all(4).all(2)
+        return ~pad.flatten(1)
+
+    def forward_token_logits(self, tokens):
+        """Last-block tokens [B, N, D] -> per-token logits [B, N, num_classes]."""
+        return self.head(self.fc_dropout(self.fc_norm(tokens)))
+
+    def logits_from_tokens(self, tokens, valid=None):
+        """Last-block tokens -> clip logits, pooled the way the model was trained."""
+        if self.pool == 'topk':
+            if valid is None:
+                valid = torch.ones(tokens.shape[:2], dtype=torch.bool, device=tokens.device)
+            return topk_pool(self.forward_token_logits(tokens), valid, self.topk_ratio)
+        x = self.fc_norm(tokens.mean(1)) if self.fc_norm is not None else tokens[:, 0]
+        return self.head(self.fc_dropout(x))
+
     def forward(self, x):
+        if self.pool == 'topk':
+            return self.logits_from_tokens(self.forward_tokens(x), self.valid_tokens(x))
         x = self.forward_features(x)
         x = self.head(self.fc_dropout(x))
         return x

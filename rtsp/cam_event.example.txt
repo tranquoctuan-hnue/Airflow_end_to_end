@@ -1,0 +1,7 @@
+# Camera cho DAG camera_dataset_video_events — chép thành rtsp/cam_event.txt rồi sửa.
+# Mỗi dòng 1 URL, xem lần lượt, mỗi camera CAMERA_EVENT_MINUTES phút (mặc định 5) rồi xoay vòng.
+# KHÔNG ghi mật khẩu vào đây: {rtsp_cam_1} là id của Airflow Connection
+# (Admin → Connections, Login + Password) — xem src/modules/rtsp_credentials.py.
+"rtsp://{rtsp_cam_1}@192.168.1.10/stream1"
+# Link YouTube live được đổi sang luồng phát bằng yt-dlp mỗi lần tới lượt (link phát hết hạn sau vài giờ)
+"https://www.youtube.com/watch?v=XXXXXXXXXXX"

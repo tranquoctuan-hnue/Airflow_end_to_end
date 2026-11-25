@@ -36,6 +36,16 @@ Bản gọn không train tiếp được, nên phải giữ bản gốc ở máy
 Code kiến trúc model nằm sẵn trong repo, ở `crawler_core/third_party/videomae/`, nên máy
 mới không cần clone repo VideoMAE.
 
+## Chỉ cho DAG `camera_dataset_video_events`
+
+| Model | Đường dẫn | Biến môi trường |
+|---|---|---|
+| VideoMAE ViT-L multi-label 368x640, 16 đầu ra (train 2026-11-23, val mAP 66,0) | `Video_understanding/vitl_368x640_ml16_231126/checkpoint-best.pth` (bản gọn 1,1 GB) + `thresholds.json` | `CAMERA_EVENT_MODEL_DIR` |
+
+Không cần `labels.txt`: bảng nhãn → đầu ra nằm sẵn trong checkpoint (`args.label_taxonomy`).
+`thresholds.json` là ngưỡng best-F1 trên val của từng đầu ra, chỉ dùng để ghi nhãn cho
+file annotation; quyết định lưu đoạn dùng `CAMERA_EVENT_THRESHOLD` (0,40).
+
 ## Chỉ cho pipeline RTSP (`dags/camera_dataset_dags.py`)
 
 Đường dẫn khai báo trong `src/modules/config.py`:

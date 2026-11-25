@@ -114,4 +114,6 @@ RTSP_FILE ={
     'vehicle_lp': _p('rtsp', 'cam_vh_lp.txt'),
     'person': _p('rtsp', 'cam_person.txt'),
     'helmet': _p('rtsp', 'cam_vh_helmet.txt'),
-} 
+    # DAG camera_dataset_video_events — RTSP hoặc link YouTube live, xoay vòng
+    'event': os.environ.get('CAMERA_EVENT_FILE') or _p('rtsp', 'cam_event.txt'),
+}
