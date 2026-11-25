@@ -12,9 +12,10 @@ Ghi cho: video ĐƯỢC NHẬN (thư mục dataset) và video bị loại `no_ev
 lý-do-loại cũ (url, CLIP, VideoMAE thô vẫn nằm trong tracker.db, cột filter_detail).
 Video bị loại vì lý do khác (not_cctv, portrait, dup_*) vẫn ghi file lý-do-loại cũ.
 
-Mỗi đoạn VideoMAE (5s) = 1 segment. Nhãn của đoạn = nhãn sự việc cao nhất nếu đạt
-ngưỡng của bộ lọc (đúng tiêu chí giữ/loại video), ngược lại "Normal" — người gán
-nhãn sửa tiếp từ đó. Tên nhãn theo tên thư mục dataset (RoadAccident, GunRobber),
+Mỗi đoạn VideoMAE (5s) = 1 segment. Nhãn của đoạn = nhãn có điểm cao nhất của đoạn
+(kể cả Normal), KHÔNG xét ngưỡng: ngưỡng chỉ quyết định giữ video hay chuyển sang
+no_event. Trước 2026-10-05 đoạn dưới ngưỡng bị ép về "Normal" (vd đoạn Collapse 48,3%
+thành Normal) — người gán nhãn mất gợi ý của model. Người gán nhãn sửa tiếp từ đó. Tên nhãn theo tên thư mục dataset (RoadAccident, GunRobber),
 không theo tên lớp của model ("Road Accident", "Gun-toting robber").
 """
 
@@ -107,16 +108,15 @@ def build(video_path: str, duration_s: float, videomae: dict | None = None,
             labels = sorted(set(L.enabled_labels()) | {'Normal'})
         except Exception:
             labels = ['Normal']
-    threshold = videomae.get('threshold', 0.5)
     segments = []
     for w in videomae.get('windows') or []:
         sf, ef = int(w['start_frame']), int(w['end_frame'])
-        is_event = w.get('prob', 0) >= threshold
+        top = w.get('top_label') or ((w.get('scores') or [[w['label']]])[0][0])
         scores = '\n'.join(f'{dataset_label(lb)}: {p * 100:.1f}%'
                            for lb, p in w.get('scores') or [])
         segments.append({
             'id':          's' + hashlib.sha1(f'{name}:{sf}'.encode()).hexdigest()[:10],
-            'label':       dataset_label(w['label']) if is_event else 'Normal',
+            'label':       dataset_label(top),
             'start_ms':    int(round(sf / fps * 1000)),
             'end_ms':      min(int(round(ef / fps * 1000)), duration_ms or 10**12),
             'start_frame': sf,

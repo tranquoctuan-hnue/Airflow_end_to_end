@@ -44,7 +44,8 @@ chính checkpoint (ckpt['args']) để không lệch với lúc train. Override 
                           mean = trung bình logits mọi view (y hệt segment_infer.py)
                           max  = đoạn đạt nếu BẤT KỲ clip nào (~2s) trong đoạn có
                                  nhãn khác Normal >= ngưỡng — nhạy hơn với sự việc
-                                 ngắn hơn 5s, nhưng dễ nhận nhầm hơn
+                                 ngắn hơn 5s, nhưng dễ nhận nhầm hơn. Điểm của đoạn
+                                 = phân phối của clip đó (tổng 100%)
     VIDEOMAE_TEMPORAL_VIEWS auto số vị trí clip mỗi đoạn. auto = vừa đủ để các clip PHỦ KÍN
                           đoạn 5s không chồng lấn: ceil(số frame đoạn / 64) — 2 ở 25fps,
                           3 ở 30fps, 5 ở 60fps (1 clip = 16 frame × sampling 4 = 64 frame).
@@ -313,8 +314,14 @@ class VideoMAEEventFilter:
         mode = mode or self.aggregate
         if mode == 'mean':          # = infer.predict(): trung bình logits → softmax
             return torch.softmax(logits.reshape(-1, logits.shape[-1]).mean(0), -1).numpy()
+        # max: lấy NGUYÊN phân phối của clip có nhãn sự việc cao nhất. Không lấy max
+        # từng lớp riêng: Normal và nhãn sự việc khi đó đến từ 2 clip khác nhau, tổng
+        # > 100% (Reddit_ln966ewfvyrh1 đoạn 65–70s: Normal 65,8% + Arson 63,1%,
+        # 2026-10-05). Quyết định đạt/không và nhãn sự việc cao nhất y hệt cách cũ.
         per_clip = torch.softmax(logits.mean(1), -1)          # [clip, lớp]
-        return per_clip.max(0).values.numpy()
+        ev = per_clip.clone()
+        ev[:, self.normal_idx] = -1.0
+        return per_clip[int(ev.max(1).values.argmax())].numpy()
 
     def _score_segment(self, clips: list[list]) -> np.ndarray:
         return self.aggregate_probs(self._clip_logits(clips))
@@ -324,9 +331,13 @@ class VideoMAEEventFilter:
         probs_ev[self.normal_idx] = -1.0                 # chỉ xét nhãn khác Normal
         k = int(probs_ev.argmax())
         top = np.argsort(-probs)[:4]                     # 4 lớp cao nhất, kể cả Normal
+        # label/prob: nhãn sự việc cao nhất — dùng để giữ/loại video.
+        # top_label: nhãn cao nhất kể cả Normal — nhãn của đoạn trong file annotation.
         return {'start_s': round(ws / fps, 1), 'end_s': round(we / fps, 1),
                 'start_frame': int(ws), 'end_frame': int(we),
                 'label': self.labels[k], 'prob': round(float(probs[k]), 3),
+                'top_label': self.labels[int(top[0])],
+                'top_prob': round(float(probs[top[0]]), 3),
                 'normal_prob': round(float(probs[self.normal_idx]), 3),
                 'scores': [(self.labels[int(i)], round(float(probs[i]), 4)) for i in top]}
 
